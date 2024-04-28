@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 LOG() {
     if [ x"$1" = x"INFO" ]; then
         shift

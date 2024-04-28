@@ -1,0 +1,11 @@
+FROM ubuntu:22.04
+
+WORKDIR /app
+ENV PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+
+COPY sources.list.22.04 /etc/apt/sources.list
+RUN apt-get update && apt-get install -y build-essential git git-lfs ccache vim curl unzip libssl-dev gcc pkg-config ninja-build libssl-dev wget && \
+    apt-get install -y --no-install-recommends python3-pip
+
+RUN pip install -i https://pypi.mirrors.ustc.edu.cn/simple deepspeed-mii
+
