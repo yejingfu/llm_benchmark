@@ -43,18 +43,19 @@ function launch_and_run() {
     opts="-d --gpus all --privileged --ipc=host --net=host --ulimit stack=67108864 --ulimit memlock=-1 -e HTTPS_PROXY='' -e HTTP_PROXY='' -e ALL_PROXY='' -e https_proxy='' -e http_proxy='' -e all_proxy='' -e CUDA_VISIBLE_DEVICES=$BM_CUDA_DEVICES --name $BM_CONTAINER_NAME "
     cmd=""
 
+    log_file=$(date|tr -d ' ')
     client_cmd="--model $BM_MODEL_DIR --tokenizer $BM_MODEL_DIR --dataset $BM_TEST_DATA_DIR --port $BM_PORT --num-warmup-requests $BM_WARMUP_REQS --num-benchmark-requests $BM_NORM_REQS --max-concurrent-requests $BM_CONCURRENT_REQS "
     client_cmd="$client_cmd --stream --pad-requests --warn-dismatch-output-len --gpus $NUM_GPUS "
     client_cmd="$client_cmd --sampling-policy $BM_SAMPLING_POLICY --fixed_prompt_len $BM_INPUT_LEN --fixed_output_len $BM_OUTPUT_LEN "
-    client_cmd="$client_cmd --log-file '${BM_BACKEND}_`date`.log' "
+    client_cmd="$client_cmd --log-file ${BM_BACKEND}_$log_file.log "
 
     if [ "$BM_BACKEND" = "trtllm" ]; then
         opts="$opts -v $BM_MODEL_DIR:/model:ro -v $BM_TRT_ENGINE_DIR:/trt-model:ro -w /workspace"
         cmd="$BM_IMAGE_NAME python3 launch_triton_server.py --world_size=$WORLD_SIZE --model_repo=/trt-model"
         client_cmd="$client_cmd --endpoint 'v2/models/ensemble/generate_stream' "
     elif [ "$BM_BACKEND" = "vllm" ]; then
-        opts="$opts -v $BM_MODEL_DIR:/model"
-        cmd="$BM_IMAGE_NAME --model /model --tensor-parallel-size $BM_TP --pipeline-parallel-size $BM_PP --tokenizer-pool-size 2 --block-size 32 --use-v2-block-manager --swap-space 16 --gpu-memory-utilization $BM_MEM_FRACTION"
+        opts="$opts -v $BM_MODEL_DIR:$BM_MODEL_DIR "
+        cmd="$BM_IMAGE_NAME --model $BM_MODEL_DIR --tensor-parallel-size $BM_TP --pipeline-parallel-size $BM_PP --tokenizer-pool-size 2 --block-size 32 --use-v2-block-manager --swap-space 16 --gpu-memory-utilization $BM_MEM_FRACTION"
         cmd="$cmd --max-num-seqs $BM_MAX_NUM_SEQ --max-model-len $BM_MAX_SEQ_LEN --max-context-len-to-capture $BM_MAX_SEQ_LEN --max-num-batched-tokens $BM_MAX_BATCHED_TOKENS --dtype $BM_DTYPE"
     elif [ "$BM_BACKEND" = "mii" ]; then
         LOG ERR "TODO mii"
@@ -72,7 +73,7 @@ function launch_and_run() {
         LOG INFO "python benchmark_serving.py $client_cmd"
         if [ $BM_DRY_RUN -eq 0 ];then
             docker run $opts $cmd
-            python benchmark_serving.py $client_cmd
+            python $CUR_DIR/benchmark_serving.py $client_cmd
         fi
     fi
 

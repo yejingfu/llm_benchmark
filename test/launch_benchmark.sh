@@ -4,7 +4,7 @@ CUR_DIR=$(cd `dirname $0`;pwd)
 source $CUR_DIR/../scripts/base.sh
 
 DEF_MODEL_DIR=/models
-DEF_DATA_DIR=/models/ShareGPT_Vicuna_unfiltered
+DEF_DATA_DIR=/models/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json
 
 DRY_RUN=""
 BACKEND="vllm"
@@ -19,7 +19,7 @@ MAX_BATCHED_TOKEN=4096
 PROMPT_POLICY="fixed"
 
 MODEL_LIST=("Mixtral-8x7B-Instruct-v0.1" "Toppy-M-7B mistral_7b" "MythoMax-L2-13b" "lzlv_70b_fp16_hf")
-CONCUR_LIST=(32 64 128)
+CONCUR_LIST=(64 128)
 
 function run() {
     model_name="$1"
@@ -52,6 +52,7 @@ function run() {
         bash $CUR_DIR/benchmark.sh $DRY_RUN --backend $BACKEND --image-name $image_tag --container-name $container_name --port $PORT \
             --model-dir $model_path --trt-engine-dir $trt_engine_path --data-dir $DEF_DATA_DIR --cuda-devices $CUDA_DEVICES --tp $TP --pp $PP --memory-fraction $MEM_FRACTION \
             --max-num-seq $MAX_NUM_SEQS --max-seq-len $MAX_SEQ_LEN --max-batched-tokens $MAX_BATCHED_TOKEN --prompt-policy $PROMPT_POLICY \
+            --warmup-reqs $warmup_reqs --norm-reqs $norm_reqs --concurrent-reqs $concur --prompt-policy fixed \
             --input-len $input_len --output-len $output_len
     done
 }
@@ -75,8 +76,8 @@ function main() {
     done
 
     for model in ${MODEL_LIST[@]}; do
-        run $model 3500 500
         run $model 1024 1024
+        run $model 3500 500
     done
 }
 
