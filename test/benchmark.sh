@@ -41,7 +41,7 @@ function launch_and_run() {
 
     LOG INFO "launch docker container $BM_CONTAINER_NAME from image $BM_IMAGE_NAME and the backend is $BM_BACKEND"
     LOG INFO ""
-    opts="-d --gpus all --privileged --ipc=host --net=host --ulimit stack=67108864 --ulimit memlock=-1 -e HTTPS_PROXY='' -e HTTP_PROXY='' -e ALL_PROXY='' -e https_proxy='' -e http_proxy='' -e all_proxy='' -e CUDA_VISIBLE_DEVICES=$BM_CUDA_DEVICES --name $BM_CONTAINER_NAME "
+    opts="-d --gpus all --privileged --ipc=host --net=host --ulimit stack=67108864 --ulimit memlock=-1 -e HTTPS_PROXY= -e HTTP_PROXY= -e ALL_PROXY= -e https_proxy= -e http_proxy= -e all_proxy= -e CUDA_VISIBLE_DEVICES=$BM_CUDA_DEVICES --name $BM_CONTAINER_NAME "
     cmd=""
 
     log_file=$(date|tr -d ' ')
@@ -58,6 +58,7 @@ function launch_and_run() {
         opts="$opts -v $BM_MODEL_DIR:$BM_MODEL_DIR "
         cmd="$BM_IMAGE_NAME --model $BM_MODEL_DIR --tensor-parallel-size $BM_TP --pipeline-parallel-size $BM_PP --tokenizer-pool-size 2 --block-size 32 --use-v2-block-manager --swap-space 16 --gpu-memory-utilization $BM_MEM_FRACTION"
         cmd="$cmd --max-num-seqs $BM_MAX_NUM_SEQ --max-model-len $BM_MAX_SEQ_LEN --max-context-len-to-capture $BM_MAX_SEQ_LEN --max-num-batched-tokens $BM_MAX_BATCHED_TOKENS --dtype $BM_DTYPE"
+        cmd="$cmd --disable-log-stats"
     elif [ "$BM_BACKEND" = "mii" ]; then
         LOG ERR "TODO mii"
     elif [ "$BM_BACKEND" = "siliconllm" ]; then
@@ -85,6 +86,9 @@ function launch_and_run() {
     if [ $BM_DRY_RUN -eq 0 ];then
         docker stop $BM_CONTAINER_NAME
         docker rm -f $BM_CONTAINER_NAME
+        if [ "$BM_BACKEND" = "siliconllm" ]; then
+            rm -f $CUR_DIR/.triton
+        fi
     fi
 }
 
