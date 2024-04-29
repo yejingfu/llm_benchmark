@@ -17,6 +17,7 @@ BM_MEM_FRACTION=0.9
 BM_MAX_NUM_SEQ=512
 BM_MAX_SEQ_LEN=4096
 BM_MAX_BATCHED_TOKENS=4096
+BM_MAX_TOKENS_FOR_CUDA_GRAPH=512
 BM_DRY_RUN=0
 BM_DTYPE=auto
 
@@ -44,7 +45,7 @@ function launch_and_run() {
     cmd=""
 
     log_file=$(date|tr -d ' ')
-    client_cmd="--model $BM_MODEL_DIR --tokenizer $BM_MODEL_DIR --dataset $BM_TEST_DATA_DIR --port $BM_PORT --num-warmup-requests $BM_WARMUP_REQS --num-benchmark-requests $BM_NORM_REQS --max-concurrent-requests $BM_CONCURRENT_REQS "
+    client_cmd="--backend $BM_BACKEND --model $BM_MODEL_DIR --tokenizer $BM_MODEL_DIR --dataset $BM_TEST_DATA_DIR --port $BM_PORT --num-warmup-requests $BM_WARMUP_REQS --num-benchmark-requests $BM_NORM_REQS --max-concurrent-requests $BM_CONCURRENT_REQS "
     client_cmd="$client_cmd --stream --pad-requests --warn-dismatch-output-len --gpus $NUM_GPUS "
     client_cmd="$client_cmd --sampling-policy $BM_SAMPLING_POLICY --fixed_prompt_len $BM_INPUT_LEN --fixed_output_len $BM_OUTPUT_LEN "
     client_cmd="$client_cmd --log-file ${BM_BACKEND}_$log_file.log "
@@ -60,7 +61,10 @@ function launch_and_run() {
     elif [ "$BM_BACKEND" = "mii" ]; then
         LOG ERR "TODO mii"
     elif [ "$BM_BACKEND" = "siliconllm" ]; then
-        LOG ERR "TODO siliconllm"
+        opts="$opts -v $BM_MODEL_DIR:$BM_MODEL_DIR -v $CUR_DIR/.triton:/root/.triton"
+        cmd="$BM_IMAGE_NAME python -m crossing.server.cli --host 0.0.0.0 --port $BM_PORT --model $BM_MODEL_DIR --max-tokens-for-cuda-graph $BM_MAX_TOKENS_FOR_CUDA_GRAPH --memory-fraction $BM_MEM_FRACTION --max-seq-len $BM_MAX_SEQ_LEN --tensor-parallel-size $BM_TP --pipeline-parallel-size $BM_PP"
+        cmd="$cmd --disable-prefix-cache"
+        #client_cmd="$client_cmd --add-system-prompt"
     elif [ "$BM_BACKEND" = "tgi" ]; then
         LOG ERR "TODO tgi"
     else

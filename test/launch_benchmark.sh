@@ -1,5 +1,6 @@
 #!/bin/bash
 
+PRG_NAME=$(basename "${BASH_SOURCE[0]}")
 CUR_DIR=$(cd `dirname $0`;pwd)
 source $CUR_DIR/../scripts/base.sh
 
@@ -18,7 +19,8 @@ MAX_SEQ_LEN=4096
 MAX_BATCHED_TOKEN=4096
 PROMPT_POLICY="fixed"
 
-MODEL_LIST=("Mixtral-8x7B-Instruct-v0.1" "Toppy-M-7B mistral_7b" "MythoMax-L2-13b" "lzlv_70b_fp16_hf")
+#MODEL_LIST=("Mixtral-8x7B-Instruct-v0.1" "Toppy-M-7B mistral_7b" "MythoMax-L2-13b" "lzlv_70b_fp16_hf")
+MODEL_LIST=("Mixtral-8x7B-Instruct-v0.1" "lzlv_70b_fp16_hf")
 CONCUR_LIST=(64 128)
 
 function run() {
@@ -57,6 +59,12 @@ function run() {
     done
 }
 
+function usage() {
+    LOG INFO "$PRG_NAME [options]"
+    LOG INFO "    --dry-run    Print the command details without starting docker"
+    LOG INFO "    --beckend    Specify the backend from: trtllm, vllm, tgi, siliconllm, mii"
+    exit
+}
 
 function main() {
     while [ "$#" -gt 0 ]; do
@@ -71,6 +79,7 @@ function main() {
         shift
         ;;
     *)
+        usage
         break
     esac
     done
