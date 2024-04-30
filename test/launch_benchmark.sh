@@ -50,9 +50,9 @@ function run() {
     local trt_opts=""
     if [ "$BACKEND" = "trtllm" ]; then
         image_tag="ppinfer_triton_trtllm:24.02"
-        trt_engine_path=$DEF_MODEL_DIR/trtllm-$model_name/trt_engines/fp16/8-gpu
-        check_trtllm $model_path $trt_engine_path $DEF_MODEL_DIR/trtllm-$model_name/trt_ifb
-        trt_opts="--trt-engine-dir $trt_engine_path --trt-ifb-dir $DEF_MODEL_DIR/trtllm-$model_name/trt_ifb"
+        trt_engine_path=$DEF_MODEL_DIR/${model_name}-trtllm/engine/float16/8-gpu
+        check_trtllm $model_path $trt_engine_path $DEF_MODEL_DIR/${model_name}-trtllm/ifb
+        trt_opts="--trt-engine-dir $trt_engine_path --trt-ifb-dir $DEF_MODEL_DIR/${model_name}-trtllm/ifb"
     elif [ "$BACKEND" = "vllm" ]; then
         image_tag="vllm/vllm-openai:v0.4.0"
     elif [ "$BACKEND" = "mii" ]; then
