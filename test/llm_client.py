@@ -335,13 +335,29 @@ def generate(host, backend, stream = False):
             params["temperature"] = 0.01
             params["top_p"] = 0.1
             params["top_k"] = 2
-        ret = requests.post(f"http://{host}/v2/models/ensemble/generate", json=params).json()
-        print(f"response: {ret}")
-        ret = ret["text_output"]
+        if stream:
+            ret = requests.post(f"http://{host}/v2/models/ensemble/generate_stream", json=params).text
+            #print(f"response: {ret}")
+        else:
+            ret = requests.post(f"http://{host}/v2/models/ensemble/generate", json=params).json()
+            print(f"response: {ret}")
+            ret = ret["text_output"]
     else:
         raise ValidationError(f"Invalid backend {backend}")
     time_delay_sec = time.time() - time_start
-    print(f"\n\ntime_delay_sec:{time_delay_sec}, len:{len(ret)}, output: {ret}")
+    if stream:
+        print(f"\n\ntime_delay_sec:{time_delay_sec}, len:{len(ret)}, stream output: >>> ")
+        chunks = ret.split("\n\n")
+        final_result = ""
+        for i in range(len(chunks)):
+            data = chunks[i].lstrip("data:").rstrip("\n\n").strip()
+            if len(data) > 0:
+                obj = json.loads(data)
+                print(f"text_output[{i}]: {obj['text_output']}")
+                final_result += obj["text_output"]
+        print(f"final text output: {final_result}")
+    else:
+        print(f"\n\ntime_delay_sec:{time_delay_sec}, len:{len(ret)}, output: {ret}")
 
 def stress(args, cal_token = True):
     prompts = []
@@ -498,6 +514,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model", type=str, help="The absolute path to the model, used for tokenizer")
     parser.add_argument("-a", "--action", type=str, default="check", choices=["check", "generate", "stress", "prompt"], help="action to execute")
     parser.add_argument("--backend", type=str, default="silicon", choices=["silicon", "openai", "tgi", "trt", "vllm"], help="the backend style")
+    parser.add_argument("-S", '--stream', default=False, type=bool, help='stream')
     parser.add_argument("-C", '--concurrency', default=4, type=int, help='concurrency')
     parser.add_argument("-N", '--number_of_request', default=4, type=int, help='number_of_request per thread')
     parser.add_argument("-PR", '--print_gen', default=False, type=int, help='print_gen')
@@ -510,7 +527,7 @@ if __name__ == "__main__":
         check_health(args.host, args.backend)
     elif args.action == "generate":
         print("Generate tokens")
-        generate(args.host, args.backend)
+        generate(args.host, args.backend, args.stream)
     elif args.action == "stress":
         print("Stress testing")
         stress(args, False)
