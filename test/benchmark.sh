@@ -7,8 +7,10 @@ BM_IMAGE_NAME=
 BM_CONTAINER_NAME=
 BM_MODEL_DIR=
 BM_TRT_ENGINE_DIR=
+BM_TRT_IFB_DIR=
 BM_TEST_DATA_DIR=
 BM_BACKEND=
+BM_ENABLE_LOG=0
 BM_CUDA_DEVICES=0,1,2,3,4,5,6,7
 BM_PORT=8000
 BM_TP=8
@@ -51,14 +53,19 @@ function launch_and_run() {
     client_cmd="$client_cmd --log-file ${BM_BACKEND}_$log_file.log "
 
     if [ "$BM_BACKEND" = "trtllm" ]; then
-        opts="$opts -v $BM_MODEL_DIR:/model:ro -v $BM_TRT_ENGINE_DIR:/trt-model:ro -w /workspace"
-        cmd="$BM_IMAGE_NAME python3 launch_triton_server.py --world_size=$WORLD_SIZE --model_repo=/trt-model"
+        opts="$opts -v $BM_MODEL_DIR:$BM_MODEL_DIR:ro -v $BM_TRT_ENGINE_DIR:$BM_TRT_ENGINE_DIR:ro -v $BM_TRT_IFB_DIR:$BM_TRT_IFB_DIR -w /workspace"
+        cmd="$BM_IMAGE_NAME python3 $BM_TRT_IFB_DIR/launch_triton_server.py --world_size=$WORLD_SIZE --model_repo=$BM_TRT_IFB_DIR"
+        if [ $BM_ENABLE_LOG -eq 1 ]; then
+            cmd="$cmd --log --log-file $BM_TRT_IFB_DIR/log.txt"
+        fi
         client_cmd="$client_cmd --endpoint 'v2/models/ensemble/generate_stream' "
     elif [ "$BM_BACKEND" = "vllm" ]; then
         opts="$opts -v $BM_MODEL_DIR:$BM_MODEL_DIR "
         cmd="$BM_IMAGE_NAME --model $BM_MODEL_DIR --tensor-parallel-size $BM_TP --pipeline-parallel-size $BM_PP --tokenizer-pool-size 2 --block-size 32 --use-v2-block-manager --swap-space 16 --gpu-memory-utilization $BM_MEM_FRACTION"
         cmd="$cmd --max-num-seqs $BM_MAX_NUM_SEQ --max-model-len $BM_MAX_SEQ_LEN --max-context-len-to-capture $BM_MAX_SEQ_LEN --max-num-batched-tokens $BM_MAX_BATCHED_TOKENS --dtype $BM_DTYPE"
-        cmd="$cmd --disable-log-stats"
+        if [ $BM_ENABLE_LOG -eq 0 ]; then
+            cmd="$cmd --disable-log-stats"
+        fi
     elif [ "$BM_BACKEND" = "mii" ]; then
         LOG ERR "TODO mii"
     elif [ "$BM_BACKEND" = "siliconllm" ]; then
@@ -111,6 +118,12 @@ function check_params() {
     if [ x"$BM_BACKEND" = x"trtllm" ] && [ x"$BM_TRT_ENGINE_DIR" = x"" ];then
         LOG ERR "The BM_TRT_ENGINE_DIR is not set when backend is 'trtllm'"
     fi
+    if [ x"$BM_BACKEND" = x"trtllm" ] && [ x"$BM_TRT_IFB_DIR" = x"" ];then
+        LOG ERR "The BM_TRT_IFB_DIR is not set when backend is 'trtllm'"
+    fi
+    if [ x"$BM_BACKEND" = x"trtllm" ] && [ ! -f "$BM_TRT_IFB_DIR/launch_triton_server.py" ];then
+        LOG ERR "The $BM_TRT_IFB_DIR/launch_triton_server.py does not exist"
+    fi
     WORLD_SIZE=$(expr $BM_TP \* $BM_PP)
     IFS=',' read -r -a arr <<< "$BM_CUDA_DEVICES"
     NUM_GPUS=${#arr[@]}
@@ -132,6 +145,7 @@ function check_params() {
     LOG INFO "BM_MAX_BATCHED_TOKENS=$BM_MAX_BATCHED_TOKENS"
     if [ "$BM_BACKEND" = "trtllm" ];then
         LOG INFO "BM_TRT_ENGINE_DIR=$BM_TRT_ENGINE_DIR"
+        LOG INFO "BM_TRT_IFB_DIR=$BM_TRT_IFB_DIR"
     fi
     LOG INFO ""
 
@@ -158,6 +172,11 @@ function main() {
     --trt-engine-dir)
         shift
         BM_TRT_ENGINE_DIR="$1"
+        shift
+        ;;
+    --trt-ifb-dir)
+        shift
+        BM_TRT_IFB_DIR="$1"
         shift
         ;;
     --data-dir)
