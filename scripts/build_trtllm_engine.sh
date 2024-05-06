@@ -12,6 +12,9 @@ TP_SIZE=8
 PP_SIZE=1
 DTYPE=float16
 ACTION=both
+MAX_INPUT_LEN=4096
+MAX_OUTPUT_LEN=3072
+MAX_NUM_TOKENS=4096
 
 PRESET_ACTIONS=("both" "convert" "build")
 PRESET_DTYPES=("float16" "fp8" "int8")
@@ -46,12 +49,15 @@ function convert_checkpoint() {
         LOG WARN "Fix Mixtral model out of GPU memory issue by using CPU memory"
         echo "cp /tmp_scripts/convert_checkpoint.py.trtllm_llama /app/tensorrt_llm/examples/llama/convert_checkpoint.py">>$CUR_DIR/$tmp_script
     fi
-    echo "python convert_checkpoint.py --model_dir $hf_model --output_dir $cp_model --dtype $dtype --tp_size $TP_SIZE --pp_size $PP_SIZE --workers $workers">>$CUR_DIR/$tmp_script
+    local args="--model_dir $hf_model --output_dir $cp_model --dtype $dtype --tp_size $TP_SIZE --pp_size $PP_SIZE --workers $workers"
+    echo "python convert_checkpoint.py $args">>$CUR_DIR/$tmp_script
     echo "touch /tmp_scripts/completed">>$CUR_DIR/$tmp_script
     chmod +x $CUR_DIR/$tmp_script
     opts="--rm -d --gpus all --privileged --ipc=host --net=host --ulimit stack=67108864 --ulimit memlock=-1 -v $hf_model:$hf_model -v $cp_model:$cp_model -v $CUR_DIR:/tmp_scripts --name $TRTLLM_CONTAINER_NAME --entrypoint /bin/bash $TRTLLM_IMG_NAME /tmp_scripts/$tmp_script"
 
     LOG INFO "docker run $opts"
+    LOG INFO "Run the following command inside container:"
+    cat $CUR_DIR/$tmp_script
     docker run $opts
 
     while true
@@ -70,6 +76,11 @@ function convert_checkpoint() {
             LOG ERR "The container might be stopped unexpectedly"
         fi
     done
+    docker ps -a | grep $TRTLLM_CONTAINER_NAME
+    if [ $? -eq 0 ]; then
+        ## remove the container if it still exists
+        docker rm -f $TRTLLM_CONTAINER_NAME
+    fi
     LOG INFO "Succeed to convert HF checkpoints to $cp_model"
 }
 
@@ -81,12 +92,16 @@ function trtllm_build() {
     fi
     LOG INFO "Build TRTLLM engine from $cp_dir to $engine_dir"
     local tmp_script=tmp$RANDOM.sh
-    echo "trtllm-build --checkpoint_dir $cp_dir --output_dir $engine_dir --gemm_plugin float16 --use_fused_mlp --use_custom_all_reduce disable">>$CUR_DIR/$tmp_script
+    local args="--checkpoint_dir $cp_dir --output_dir $engine_dir --gemm_plugin float16 --use_fused_mlp --use_custom_all_reduce disable"
+    args="$args --max_input_len $MAX_INPUT_LEN --max_output_len $MAX_OUTPUT_LEN --max_num_tokens $MAX_NUM_TOKENS"
+    echo "trtllm-build $args">>$CUR_DIR/$tmp_script
     echo "touch /tmp_scripts/completed_engine">>$CUR_DIR/$tmp_script
     chmod +x $CUR_DIR/$tmp_script
     opts="--rm -d --gpus all --privileged --ipc=host --net=host --ulimit stack=67108864 --ulimit memlock=-1 -v $cp_dir:$cp_dir -v $engine_dir:$engine_dir -v $CUR_DIR:/tmp_scripts --name $TRTLLM_CONTAINER_NAME --entrypoint /bin/bash $TRTLLM_IMG_NAME /tmp_scripts/$tmp_script"
 
     LOG INFO "docker run $opts"
+    LOG INFO "Run the following command inside container:"
+    cat $CUR_DIR/$tmp_script
     docker run $opts
 
     while true
@@ -105,6 +120,11 @@ function trtllm_build() {
             LOG ERR "The container might be stopped unexpectedly"
         fi
     done
+    docker ps -a | grep $TRTLLM_CONTAINER_NAME
+    if [ $? -eq 0 ]; then
+        ## remove the container if it still exists
+        docker rm -f $TRTLLM_CONTAINER_NAME
+    fi
     LOG INFO "Succeed to build trtllm engine to $engine_dir"
 }
 
