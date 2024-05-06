@@ -58,7 +58,7 @@ function launch_and_run() {
         if [ $BM_ENABLE_LOG -eq 1 ]; then
             cmd="$cmd --log --log-file $BM_TRT_IFB_DIR/log.txt"
         fi
-        client_cmd="$client_cmd --endpoint 'v2/models/ensemble/generate_stream' "
+        client_cmd="$client_cmd --endpoint v2/models/ensemble/generate_stream"
     elif [ "$BM_BACKEND" = "vllm" ]; then
         opts="$opts -v $BM_MODEL_DIR:$BM_MODEL_DIR "
         cmd="$BM_IMAGE_NAME --model $BM_MODEL_DIR --tensor-parallel-size $BM_TP --pipeline-parallel-size $BM_PP --tokenizer-pool-size 2 --block-size 32 --use-v2-block-manager --swap-space 16 --gpu-memory-utilization $BM_MEM_FRACTION"

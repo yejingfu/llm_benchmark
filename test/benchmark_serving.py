@@ -583,6 +583,7 @@ async def send_request(
         first_token_time = None
         ttft = None
         tpot = None
+        #logger.info(f"async send requests to: {api_url}")
         async with aiohttp.ClientSession(timeout=timeout) as session:
             for attempt in range(MAX_RETRIES):
                 try:
@@ -601,6 +602,7 @@ async def send_request(
                                 chunks.append(chunk)
                         else:
                             async for chunk, _ in response.content.iter_chunks():
+                                #logger.info(f"chunk content({backend}): {chunk}")
                                 if ttft is None:
                                     first_token_time = time.perf_counter()
                                     ttft = first_token_time - request_start_time

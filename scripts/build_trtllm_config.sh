@@ -5,8 +5,8 @@ PRG_NAME=$(basename "${BASH_SOURCE[0]}")
 CUR_DIR=$(cd `dirname $0`;pwd)
 source $CUR_DIR/base.sh
 
-
-DECOUPLE_MODE=False
+## set DECOUPLE_MODE True to support streaming mode
+DECOUPLE_MODE=True
 BATCHING_STRATEGY=inflight_batching
 GPU_MEM_FRAC=0.9
 KV_CACHE_REUSE=False
