@@ -12,7 +12,9 @@ function main() {
     if [[ $images =~ "${name[0]}" ]]; then
         LOG ERR "The image already exists: $IMAGE_TAG, no need to create it again"
     fi
+    cp $CUR_DIR/sources.list.22.04 $CUR_DIR/mii/
     DOCKER_BUILDKIT=1 docker build -t $IMAGE_TAG -f $CUR_DIR/mii/Dockerfile.mii $CUR_DIR/mii
+    rm -f $CUR_DIR/mii/sources.list.22.04
 }
 
 main "$@"
