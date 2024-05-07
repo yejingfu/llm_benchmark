@@ -40,21 +40,25 @@ function check_trtllm() {
 }
 
 function run() {
-    local model_name="$1"
+    local model_path="$1"
     local input_len=$2
     local output_len=$3
+
     local image_tag=""
     local container_name="benchmark_$BACKEND"
-    local model_path=$DEF_MODEL_DIR/$model_name
-    local trt_engine_path=$model_path
-    local trt_opts=""
+    local extra_opts=""
+    if [ ! -d "$model_path" ]; then
+        LOG ERR "The model does not exist: $model_path"
+    fi
+
     if [ "$BACKEND" = "trtllm" ]; then
         image_tag="ppinfer_triton_trtllm:24.02"
-        trt_engine_path=$DEF_MODEL_DIR/${model_name}-trtllm/engine/float16/8-gpu
-        check_trtllm $model_path $trt_engine_path $DEF_MODEL_DIR/${model_name}-trtllm/ifb
-        trt_opts="--trt-engine-dir $trt_engine_path --trt-ifb-dir $DEF_MODEL_DIR/${model_name}-trtllm/ifb"
+        local trt_engine_path=$4
+        local trt_ifb_path=$5
+        check_trtllm $model_path $trt_engine_path $trt_ifb_path
+        extra_opts="--trt-engine-dir $trt_engine_path --trt-ifb-dir $trt_ifb_path"
     elif [ "$BACKEND" = "vllm" ]; then
-        image_tag="vllm/vllm-openai:v0.4.0"
+        image_tag="ppinfer/vllm-openai:v0.4.2"
     elif [ "$BACKEND" = "mii" ]; then
         image_tag="ppinfer_mii:0.1"
     elif [ "$BACKEND" = "tgi" ]; then
@@ -69,12 +73,12 @@ function run() {
         warmup_reqs=32
         norm_reqs=$(expr $concur \* 16)
         LOG INFO ""
-        LOG INFO "===== RUN benchmark, model: $model_name, concurrency: $concur, requests: ($warmup_reqs, $norm_reqs), length($input_len, $output_len)"
+        LOG INFO "===== RUN benchmark, model: $model_path, concurrency: $concur, requests: ($warmup_reqs, $norm_reqs), length($input_len, $output_len)"
         bash $CUR_DIR/benchmark.sh $DRY_RUN --backend $BACKEND --image-name $image_tag --container-name $container_name --port $PORT \
             --model-dir $model_path --data-dir $DEF_DATA_DIR --cuda-devices $CUDA_DEVICES --tp $TP --pp $PP --memory-fraction $MEM_FRACTION \
             --max-num-seq $MAX_NUM_SEQS --max-seq-len $MAX_SEQ_LEN --max-batched-tokens $MAX_BATCHED_TOKEN --prompt-policy $PROMPT_POLICY \
             --warmup-reqs $warmup_reqs --norm-reqs $norm_reqs --concurrent-reqs $concur --prompt-policy fixed \
-            --input-len $input_len --output-len $output_len $trt_opts
+            --input-len $input_len --output-len $output_len $extra_opts
     done
 }
 
@@ -83,10 +87,15 @@ function usage() {
     LOG INFO "$PRG_NAME [options]"
     LOG INFO "    --dry-run    Print the command details without starting docker"
     LOG INFO "    --beckend    Specify the backend from: trtllm, vllm, tgi, siliconllm, mii"
+    LOG INFO "    --model      Special model to load, if not set, use preset models"
     exit
 }
 
 function main() {
+    if [ "$#" -eq 0 ]; then
+        usage
+    fi
+    local model_path=
     while [ "$#" -gt 0 ]; do
     case "$1" in
     --dry-run)
@@ -98,16 +107,37 @@ function main() {
         BACKEND="$1"
         shift
         ;;
+    --model)
+        shift
+        model_path="$1"
+        shift
+        ;;
     *)
         usage
         break
     esac
     done
 
-    for model in ${MODEL_LIST[@]}; do
-        run $model 1024 1024
-        run $model 3500 500
-    done
+    if [ x"$model_path" != x"" ]; then
+        if [ ! -d "$model_path" ]; then
+            LOG ERR "The model path does not exist: $model_path"
+        fi
+        LOG INFO "Load the model $model_path"
+        run $model_path 1024 1024
+        run $model_path 3500 500
+    else
+        for model in ${MODEL_LIST[@]}; do
+            local model_path=$DEF_MODEL_DIR/${model}
+            local trt_engine_path=
+            local trt_ifb_path=
+            if [ "$BACKEND" = "trtllm" ];then
+                trt_engine_path=$DEF_MODEL_DIR/${model}-trtllm/engine/float16/8-gpu
+                trt_ifb_path=$DEF_MODEL_DIR/${model}-trtllm/ifb
+            fi
+            run $model_path 1024 1024 $trt_engine_path $trt_ifb_path
+            run $model_path 3500 500 $trt_engine_path $trt_ifb_path
+        done
+    fi
 }
 
 main "$@"
