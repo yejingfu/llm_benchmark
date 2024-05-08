@@ -514,7 +514,7 @@ async def send_request(
             }
         elif backend == "vllm":
             pload = {
-                "model": model,
+                "model": "default",
                 "prompt": prompt,
                 "n": n,
                 "best_of": best_of,

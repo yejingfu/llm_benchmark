@@ -62,7 +62,7 @@ function launch_and_run() {
     elif [ "$BM_BACKEND" = "vllm" ]; then
         opts="$opts -v $BM_MODEL_DIR:$BM_MODEL_DIR "
         cmd="$BM_IMAGE_NAME --model $BM_MODEL_DIR --tensor-parallel-size $BM_TP --pipeline-parallel-size $BM_PP --tokenizer-pool-size 2 --block-size 32 --use-v2-block-manager --swap-space 16 --gpu-memory-utilization $BM_MEM_FRACTION"
-        cmd="$cmd --max-num-seqs $BM_MAX_NUM_SEQ --max-model-len $BM_MAX_SEQ_LEN --max-seq_len-to-capture $BM_MAX_SEQ_LEN --max-num-batched-tokens $BM_MAX_BATCHED_TOKENS --dtype $BM_DTYPE"
+        cmd="$cmd --max-num-seqs $BM_MAX_NUM_SEQ --max-model-len $BM_MAX_SEQ_LEN --max-seq_len-to-capture $BM_MAX_SEQ_LEN --max-num-batched-tokens $BM_MAX_BATCHED_TOKENS --dtype $BM_DTYPE --served-model-name default"
         if [ $BM_ENABLE_LOG -eq 0 ]; then
             cmd="$cmd --disable-log-stats"
         fi
