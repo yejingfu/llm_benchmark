@@ -57,7 +57,7 @@ function build_config() {
     LOG INFO "Copy ifb config from $TRTLLM_BACKEND_DIR/all_models/inflight_batcher_llm to $OUTPUT_DIR"
     mkdir $OUTPUT_DIR
     cp -rf $TRTLLM_BACKEND_DIR/all_models/inflight_batcher_llm/* $OUTPUT_DIR/
-    cp $CUR_DIR/launch_triton_server.py.trtllm_backend $OUTPUT_DIR/launch_triton_server.py
+    cp $CUR_DIR/trtllm/launch_triton_server.py.trtllm_backend $OUTPUT_DIR/launch_triton_server.py
 
     LOG INFO "Configure"
     cmd_file=$TRTLLM_BACKEND_DIR/tools/fill_template.py

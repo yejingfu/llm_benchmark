@@ -47,7 +47,7 @@ function convert_checkpoint() {
     echo "cd /app/tensorrt_llm/examples/llama">>$CUR_DIR/$tmp_script
     if [[ "$hf_model" =~ "Mixtral" ]];then
         LOG WARN "Fix Mixtral model out of GPU memory issue by using CPU memory"
-        echo "cp /tmp_scripts/convert_checkpoint.py.trtllm_llama /app/tensorrt_llm/examples/llama/convert_checkpoint.py">>$CUR_DIR/$tmp_script
+        echo "cp /tmp_scripts/trtllm/convert_checkpoint.py.trtllm_llama /app/tensorrt_llm/examples/llama/convert_checkpoint.py">>$CUR_DIR/$tmp_script
     fi
     local args="--model_dir $hf_model --output_dir $cp_model --dtype $dtype --tp_size $TP_SIZE --pp_size $PP_SIZE --workers $workers"
     echo "python convert_checkpoint.py $args">>$CUR_DIR/$tmp_script
