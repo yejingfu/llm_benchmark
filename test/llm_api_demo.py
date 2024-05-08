@@ -1,0 +1,183 @@
+import argparse
+import asyncio
+import json
+import os
+import sys
+import traceback
+import time
+import warnings
+import aiohttp
+import requests
+from tqdm.asyncio import tqdm
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import AsyncGenerator, List, Optional, Tuple
+
+AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
+
+@dataclass
+class RequestInput:
+    prompt: str
+    api_url: str
+    prompt_len: int = 0
+    output_len: int = 0
+    model: str = "default"
+    best_of: int = 1
+    use_beam_search: bool = False
+    stream: bool = True
+    ignore_eos: bool = False
+
+@dataclass
+class RequestOutput:
+    generated_text: str = ""
+    success: bool = False
+    latency: float = 0.0
+    ttft: float = 0.0  # Time to first token
+    itl: List[float] = field(
+        default_factory=list)  # List of inter-token latencies
+    prompt_len: int = 0
+    error: str = ""
+
+def remove_prefix(text: str, prefix: str) -> str:
+    if text.startswith(prefix):
+        return text[len(prefix):]
+    return text
+
+def print_chunk_progressly(count: int, prefix: str, data):
+    text = prefix.split("\n")[-1]
+    if data["choices"][0]:
+        text += f"{data['choices'][0]['text']}"
+    if data.get("usage", None) is not None:
+        text += f" \n\n{data['usage']}\n\n"
+    print('\r' + f"[{count}]: " + text, end="", flush=True)
+    #sys.stdout.write(f"\rIteration {count}: " + text)
+    #sys.stdout.flush()
+
+async def async_request_openai_completions(
+    request_input: RequestInput,
+    pbar: Optional[tqdm] = None,
+    print_progress: bool = True,
+) -> RequestOutput:
+    api_url = request_input.api_url
+    assert api_url.endswith("v1/completions"), "OpenAI Completions API URL must end with 'v1/completions'."
+
+    async with aiohttp.ClientSession(timeout=AIOHTTP_TIMEOUT) as session:
+        assert not request_input.use_beam_search
+        payload = {
+            "model": request_input.model,
+            "prompt": request_input.prompt,
+            "temperature": 0.0,
+            "best_of": request_input.best_of,
+            "max_tokens": request_input.output_len,
+            "ignore_eos": request_input.ignore_eos,
+            "stream": request_input.stream,
+        }
+        # headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"}
+        headers = {"User-Agent": "LLM API Client"}
+
+        output = RequestOutput()
+        output.prompt_len = request_input.prompt_len
+
+        generated_text = ""
+        ttft = 0.0
+        latency = 0.0
+        st = time.perf_counter()
+        most_recent_timestamp = st
+        try:
+            print(f"Post requests to: {api_url}")
+            iter = 0
+            async with session.post(url=api_url, json=payload, headers=headers) as response:
+                if response.status == 200:
+                    async for chunk_bytes in response.content:
+                        chunk_bytes = chunk_bytes.strip()
+                        if not chunk_bytes:
+                            continue
+                        iter += 1
+                        chunk = remove_prefix(chunk_bytes.decode("utf-8"), "data: ")
+                        if chunk == "[DONE]":
+                            latency = time.perf_counter() - st
+                        else:
+                            data = json.loads(chunk)
+                            if print_progress:
+                                print_chunk_progressly(iter, generated_text, data)
+                            if data["choices"][0]["text"]:
+                                timestamp = time.perf_counter()
+                                # First token
+                                if ttft == 0.0:
+                                    ttft = time.perf_counter() - st
+                                    output.ttft = ttft
+                                # Decoding phase
+                                elif data.get("usage", None) is None:
+                                    output.itl.append(timestamp - most_recent_timestamp)
+
+                                most_recent_timestamp = timestamp
+                                generated_text += data["choices"][0]["text"]
+
+                    output.generated_text = generated_text
+                    output.success = True
+                    output.latency = latency
+                else:
+                    output.success = False
+                    details = await response.text()
+                    output.error = f"status code {response.status}({response.reason}).\n\t Details: {details}."
+        except Exception:
+            output.success = False
+            exc_info = sys.exc_info()
+            output.error = "".join(traceback.format_exception(*exc_info))
+
+    if pbar:
+        pbar.update(1)
+    return output
+
+def check_health(url: str, ) -> bool:
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            return True
+    except:
+        pass
+    return False
+
+def main(args):
+    print(args)
+    input = RequestInput(
+        prompt=args.prompt,
+        api_url=f"{args.url}{args.endpoint}",
+        output_len=args.output_len,
+        stream=args.stream,
+        ignore_eos=args.force_output,
+    )
+    url_health = args.url
+    if args.backend == "vllm":
+        url_health += "/health"
+    
+    if check_health(url_health):
+        print("OpenAI Completions API is healthy.")
+    else:
+        print(f"Error: OpenAI Completions API is not healthy: {url_health}.")
+        return
+    print(input)
+    print_chunck = True
+    start_time = time.time()
+    result = asyncio.run(async_request_openai_completions(input, print_progress = print_chunck))
+    end_time = time.time()
+    #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
+    print(f"Time elapsed: {end_time - start_time} seconds.")
+    if result.success:
+        print("DONE")
+        if not args.stream and not print_chunck:
+            print(f"Generated text: {result.generated_text}")
+    else:
+        print(f"Error: {result.error}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Demonstration about llm openapi.")
+    parser.add_argument("--url", type=str, help="The host URL of the llm openapi server.", default="http://localhost:8000")
+    parser.add_argument("--backend", type=str, help="The backend of the llm openapi server.", default="vllm", choices=["vllm", "trtllm"])
+    parser.add_argument("--endpoint", type=str, help="The endpoint of the llm openapi server.", default="/v1/completions")
+    parser.add_argument("--prompt", type=str, help="The prompt for the completion.", default="The quick brown fox jumps over the lazy dog.")
+    parser.add_argument("--output_len", type=int, help="The maximum length of the output.", default=1024)
+    parser.add_argument("--force_output", type=int, help="Force to ouput the maximum length of the output, ignore eos when found.")
+    parser.add_argument("--stream", action="store_true", help="Whether to stream the output or not.")
+    args = parser.parse_args()
+    main(args)
