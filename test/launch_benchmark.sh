@@ -9,6 +9,7 @@ DEF_DATA_DIR=/models/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_s
 
 DRY_RUN=""
 BACKEND="vllm"
+FP8_SUPPORT="None"
 CUDA_DEVICES=0,1,2,3,4,5,6,7
 PORT=8000
 TP=8
@@ -79,16 +80,16 @@ function run() {
             --model-dir $model_path --data-dir $DEF_DATA_DIR --cuda-devices $CUDA_DEVICES --tp $TP --pp $PP --memory-fraction $MEM_FRACTION \
             --max-num-seq $MAX_NUM_SEQS --max-seq-len $MAX_SEQ_LEN --max-batched-tokens $MAX_BATCHED_TOKEN --prompt-policy $PROMPT_POLICY \
             --warmup-reqs $warmup_reqs --norm-reqs $norm_reqs --concurrent-reqs $concur --prompt-policy fixed \
-            --input-len $input_len --output-len $output_len $extra_opts
+            --input-len $input_len --output-len $output_len $extra_opts --fp8 $FP8_SUPPORT
     done
 }
-
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
     LOG INFO "    --dry-run    Print the command details without starting docker"
     LOG INFO "    --backend    Specify the backend from: trtllm, vllm, tgi, siliconllm, mii"
     LOG INFO "    --model      Special model to load, if not set, use preset models"
+    LOG INFO "    --fp8        How to config fp8 inference, its value should be: weight, kvcache, all"
     exit
 }
 
@@ -96,7 +97,6 @@ function main() {
     if [ "$#" -eq 0 ]; then
         usage
     fi
-    local model_path=
     while [ "$#" -gt 0 ]; do
     case "$1" in
     --dry-run)
@@ -110,7 +110,12 @@ function main() {
         ;;
     --model)
         shift
-        model_path="$1"
+        local model_path="$1"
+        shift
+        ;;
+    --fp8)
+        shift
+        FP8_SUPPORT="$1"
         shift
         ;;
     *)

@@ -22,6 +22,7 @@ BM_MAX_BATCHED_TOKENS=4096
 BM_MAX_TOKENS_FOR_CUDA_GRAPH=512
 BM_DRY_RUN=0
 BM_DTYPE=auto
+BM_FP8=
 
 BM_WARMUP_REQS=32
 BM_NORM_REQS=512
@@ -67,6 +68,12 @@ function launch_and_run() {
             cmd="$cmd --max-context-len-to-capture $BM_MAX_SEQ_LEN"
         else
             cmd="$cmd --max-seq_len-to-capture $BM_MAX_SEQ_LEN"
+        fi
+        if [ x"$BM_FP8" = x"weight" ] || [ x"$BM_FP8" = x"all" ]; then
+            cmd="$cmd --quantization fp8"
+        fi
+        if [ x"$BM_FP8" = x"kvcache" ] || [ x"$BM_FP8" = x"all" ]; then
+            cmd="$cmd --kv-cache-dtype fp8 --quantization-param-path $BM_MODEL_DIR/kv_cache_scales.json"
         fi
         if [ $BM_ENABLE_LOG -eq 0 ]; then
             cmd="$cmd --disable-log-stats"
@@ -269,6 +276,11 @@ function main() {
     --output-len)
         shift
         BM_OUTPUT_LEN=$1
+        shift
+        ;;
+    --fp8)
+        shift
+        BM_FP8=$1
         shift
         ;;
     --dry-run)
