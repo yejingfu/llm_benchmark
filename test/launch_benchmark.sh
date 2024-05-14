@@ -20,7 +20,7 @@ MAX_BATCHED_TOKEN=4096
 PROMPT_POLICY="fixed"
 
 #MODEL_LIST=("Mixtral-8x7B-Instruct-v0.1" "Toppy-M-7B mistral_7b" "MythoMax-L2-13b" "lzlv_70b_fp16_hf")
-MODEL_LIST=("Mixtral-8x7B-Instruct-v0.1")
+MODEL_LIST=("Meta-Llama-3-8B-Instruct")
 CONCUR_LIST=(64 128)
 
 function check_trtllm() {
@@ -59,6 +59,7 @@ function run() {
         extra_opts="--trt-engine-dir $trt_engine_path --trt-ifb-dir $trt_ifb_path"
     elif [ "$BACKEND" = "vllm" ]; then
         image_tag="ppinfer/vllm-openai:v0.4.2"
+#        image_tag="vllm/vllm-openai:v0.4.0"
     elif [ "$BACKEND" = "mii" ]; then
         image_tag="ppinfer_mii:0.1"
     elif [ "$BACKEND" = "tgi" ]; then
@@ -86,7 +87,7 @@ function run() {
 function usage() {
     LOG INFO "$PRG_NAME [options]"
     LOG INFO "    --dry-run    Print the command details without starting docker"
-    LOG INFO "    --beckend    Specify the backend from: trtllm, vllm, tgi, siliconllm, mii"
+    LOG INFO "    --backend    Specify the backend from: trtllm, vllm, tgi, siliconllm, mii"
     LOG INFO "    --model      Special model to load, if not set, use preset models"
     exit
 }
