@@ -21,11 +21,6 @@ from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizer
 from dataset_sampler import DatasetSampler
 from async_request_sender import Response, AysncRequestSender
 
-
-URL_CHECK="http://localhost:8000/health"
-URL_COMPLETION="http://localhost:8000/v1/completions"  # openai compatible
-DATASET_PATH="/models/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json"
-
 @dataclass
 class Response:
     prompt: str = field(default="")
@@ -103,12 +98,22 @@ def main(args: argparse.Namespace):
     logger.info(args)
     logger.info("\n\n")
 
+
+
+    sender = AysncRequestSender(args.backend, args.base_url, args.api_key, args.endpoint_models, args.endpoint_chat, args.endpoint_completion)
+    if not sender.check_health(10):
+        logger.error(f"Failed to check the healthy of the inference server")
+    str_models = sender.get_models()
+    if str_models is None:
+        logger.error("No valid models supported from server")
+        return
+    logger.info(f"[Model list]: {str_models}")
+
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    tokenizer = get_tokenizer(args.model, trust_remote_code=args.trust_remote_code, use_fast=args.use_fast)
-    sender = AysncRequestSender("vllm", "http://localhost:8000/v1/completions")
-    sampler = DatasetSampler(DATASET_PATH)
+    tokenizer = get_tokenizer(args.tokenizer, trust_remote_code=args.trust_remote_code, use_fast=args.use_fast)
+    sampler = DatasetSampler(args.dataset)
     requests_warmup, requests_test = sampler.sample_requests(
         args.num_warmup_requests,
         args.num_benchmark_requests,
@@ -139,20 +144,19 @@ def main(args: argparse.Namespace):
         return
 
     # post requests
-    for phase, input_requests in zip(("Warmup", "Benchmark"), (requests_for_warmup, requests_for_benchmark)):
+    for phase, input_requests in zip(("Warmup", "Benchmark"), (requests_warmup, requests_test)):
         if len(input_requests) == 0:
             continue
         start_time = time.perf_counter()
-        asyncio.run(sender.post_batch_requests(
-            args.max_concurrent_requests, input_requests, args.n, args.best_of, args.use_beam_search, args.do_sample, args.presence_penalty, args.frequency_penalty, args.repetition_penalty,
-            args.temperature, args.top_p, args.top_k if args.top_k > 0 else tokenizer.vocab_size, args.stream, args.model, tokenizer.eos_token_id,
+        asyncio.run(sender.post_batch_requests_async(
+            args.max_concurrent_requests, input_requests, args.model, args.n, args.best_of, args.use_beam_search, args.do_sample, args.presence_penalty, args.frequency_penalty, args.repetition_penalty,
+            args.temperature, args.top_p, args.top_k if args.top_k > 0 else tokenizer.vocab_size, args.stream, tokenizer.eos_token_id,
         ))
         end_time = time.perf_counter()
         if phase == "Benchmark":
             sender.dump_response(tokenizer, args.stream, args.gpus, end_time - start_time, args.log_file)
 
 def simple_verify_args(args):
-    assert os.path.exists(args.model), "The model does not exist"
     assert not args.use_beam_search, "do not support benchmark beam search now."
     assert (args.best_of == 1 and args.n == 1), "do not support benchmark best_of and n now."
     assert (args.presence_penalty == 0.0 and args.frequency_penalty == 0.0 and args.repetition_penalty == 1.0), "do not support benchmark penalty policies now."
@@ -165,7 +169,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Benchmark the online serving throughput."
     )
-    parser.add_argument("--image", type=str, help="The inference image, if set this value, run docker container from this image, otherwise assume the container is already running")
+    parser.add_argument("--backend", type=str, help="The backend e.g. vllm, trtllm")
+    parser.add_argument("--base-url", type=str, default="http://localhost:8000")
+    parser.add_argument("--api-key", type=str, help="The api key to call commercial inference API")
+    parser.add_argument("--endpoint-models", type=str, help="The endpoint to call server health checking")
+    parser.add_argument("--endpoint-chat", type=str, help="The endpoint to call chat API")
+    parser.add_argument("--endpoint-completion", type=str, help="The endpoint to call completion API")
+    parser.add_argument("--dataset", type=str, help="The local folder path to the dataset for testing")
+    parser.add_argument("--tokenizer", type=str, help="The local folder path to the model data for token decoding and encoding")
+    parser.add_argument("--image", type=str, help="The inference image, if set this value, run docker container from this image before testing")
+    parser.add_argument("--model", type=str, default="default", help="The model name")
     parser.add_argument("--n", type=int, default=1, help="How many sequences to generate for each prompt.")
     parser.add_argument("--best-of", type=int, default=1, help="Generates `best_of` sequences per prompt and returns the top `n` results, with the default value of `n` being one.")
     parser.add_argument("--use-beam-search", action="store_true")

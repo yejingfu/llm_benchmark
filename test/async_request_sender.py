@@ -1,3 +1,21 @@
+import requests
+import aiohttp
+import argparse
+import asyncio
+import json
+import numpy as np
+import random
+import requests
+import subprocess
+import time
+
+from collections import OrderedDict
+from dataclasses import dataclass, field, asdict
+from loguru import logger
+from tqdm import tqdm
+from tqdm.asyncio import tqdm as async_tqdm
+from typing import List, Tuple, Union, Optional
+from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 PERCENTILES = [25, 50, 75, 90, 95, 99, 99.9, 99.99]
 
@@ -12,37 +30,59 @@ class Response:
     tpot: Optional[float] = field(default=None)
 
 class AysncRequestSender:
-    def __init__(self, backend: str, api_url: str):
+    def __init__(self, backend: str, base_url: str, api_key: str, ep_models: str, ep_chat: str, ep_completion: str):
         self.backend = backend
-        self.api_url = api_url
-        self.response = []
+        self.base_url = base_url
+        self.api_key = api_key
+        self.ep_models = ep_models
+        self.ep_chat = ep_chat
+        self.ep_completion = ep_completion
+        self.responses = []
+        self.headers = OrderedDict({"Content-Type": "application/json"})
+        self.headers["Authorization"] = f"Bearer {self.api_key}"
+
+    def check_health(self, retry: int) -> bool:
+        ret = False
+        for i in range(retry):
+            res = requests.get(self.base_url + "/health", headers = self.headers)
+            if res.status_code == 200:
+                ret = True
+                break
+            logger.info("try again to check health {i}")
+        return ret
+
+    def get_models(self)->Optional[str]:
+        res = requests.get(self.base_url + self.ep_models, headers = self.headers)
+        if res.status_code == 200:
+            return res.text
+        return None
 
     def get_response(self) -> List[Response]:
         return self.response
 
-    async def post_batch_requests(self,
+    async def post_batch_requests_async(self,
         batch_size: int, requests: List[Tuple[str, int, int]],
-        n: int, best_of: int, beam_search: bool, do_sample: bool, presence_penalty: float, frequency_penalty: float, repetition_penalty: float,
-        temperature: float, top_p: float, top_k: int, stream: bool, model: str, eos_token_id: int,
+        model: str, n: int, best_of: int, beam_search: bool, do_sample: bool, presence_penalty: float, frequency_penalty: float, repetition_penalty: float,
+        temperature: float, top_p: float, top_k: int, stream: bool, eos_token_id: int,
     ):
         self.response = []
-        semaphore = asyncio.Semaphore(self.batch_size)
+        semaphore = asyncio.Semaphore(batch_size)
         for _ in range(batch_size - 1):
             await semaphore.acquire()
         ## Create a single task to update semaphore
-        tasks: List[asyncio.Task] = [asyncio.create_task(self._update_sem(semaphore, 1, 60, batch_size - 1)]
-        progress_bar = async_tqdm(total=len(input_requests), desc="Processing Requests", smoothing=0.0)
+        tasks: List[asyncio.Task] = [asyncio.create_task(self._update_sem(semaphore, 1, 60, batch_size - 1))]
+        progress_bar = async_tqdm(total=len(requests), desc="Processing Requests", smoothing=0.0)
         for request in requests:
             prompt, prompt_len, output_len = request
             task = asyncio.create_task(self._post_one_request(
-                semaphore, prompt, prompt_len, output_len, n, best_of, beam_search, do_sample, presence_penalty, frequency_penalty, repetition_penalty, temperature, top_p, top_k, stream, model, eos_token_id
+                semaphore, model, prompt, prompt_len, output_len, n, best_of, beam_search, do_sample, presence_penalty, frequency_penalty, repetition_penalty, temperature, top_p, top_k, stream, eos_token_id
             ))
             tasks.append(task)
             task.add_done_callback(lambda _: progress_bar.update())
         await asyncio.gather(*tasks)
         progress_bar.close()
 
-    async def _update_sem(sem: asyncio.Semaphore, update_interval: int, ramp_up_period: int, batch_size: int):
+    async def _update_sem(self, sem: asyncio.Semaphore, update_interval: int, ramp_up_period: int, batch_size: int):
         n_parts = ramp_up_period // update_interval
         base = batch_size // n_parts
         remainder = batch_size % n_parts
@@ -52,9 +92,9 @@ class AysncRequestSender:
             for _ in range(p):
                 sem.release()
 
-    async def _post_one_request(self, semaphore: asyncio.Semaphore, prompt: str, prompt_len: int, output_len: int,
+    async def _post_one_request(self, semaphore: asyncio.Semaphore, model: str, prompt: str, prompt_len: int, output_len: int,
         n: int, best_of: int, beam_search: bool, do_sample: bool, presence_penalty: float, frequency_penalty: float, repetition_penalty: float,
-        temperature: float, top_p: float, top_k: int, stream: bool, model: str, eos_token_id: int,
+        temperature: float, top_p: float, top_k: int, stream: bool, eos_token_id: int,
     ):
         # prepare header, payload and params
         timeout = aiohttp.ClientTimeout(total=3600 * 3)
@@ -63,10 +103,9 @@ class AysncRequestSender:
         ttft = None
         tpot = None
         output = ""
-        headers = {"User-Agent": "Benchmark Client"}
         if self.backend == "vllm":
             payload = {
-                "model": "default",
+                "model": model,
                 "prompt": prompt,
                 "n": n,
                 "best_of": best_of,
@@ -81,6 +120,18 @@ class AysncRequestSender:
                 "ignore_eos": True,
                 "stream": stream,
             }
+        elif self.backend == "novita":
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "n": n,
+                "presence_penalty": presence_penalty,
+                "frequency_penalty": frequency_penalty,
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_tokens": output_len,
+                "stream": stream,
+            }
         else:
             raise ValueError(f"Unknown backend: {self.backend}")
         # post now
@@ -89,9 +140,9 @@ class AysncRequestSender:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 for i in range(retry):
                     try:
-                        async with session.post(self.api_url, headers = headers, json = payload) as res:
+                        async with session.post(self.base_url + self.ep_completion, headers = self.headers, json = payload) as res:
                             chunks = []
-                            async for chunk, _ in response.content.iter_chunks():
+                            async for chunk, _ in res.content.iter_chunks():
                                 chunks.append(chunk)
                                 if ttft is None:
                                     # got first token
@@ -104,7 +155,7 @@ class AysncRequestSender:
                             outputs = []
                             for chunk in chunks:
                                 try:
-                                    data = $chunk.rstrip(b"\x00").lstrip(b"data:").rstrip(b"\n\n").strip().decode("utf-8")
+                                    data = chunk.rstrip(b"\x00").lstrip(b"data:").rstrip(b"\n\n").strip().decode("utf-8")
                                     obj = json.loads(data)
                                     outputs.append(obj["choices"][0]["text"])
                                 except json.decoder.JSONDecodeError as err:
@@ -127,7 +178,7 @@ class AysncRequestSender:
             # end of session
             request_end_time = time.perf_counter()
             request_latency = request_end_time - request_start_time
-            self.response.append(Response(prompt=prompt, generated=output, prompt_len=prompt_len, output_len=output_len, latency=request_latency, ttft=ttft, tpot=tpot))
+            self.responses.append(Response(prompt=prompt, generated=output, prompt_len=prompt_len, output_len=output_len, latency=request_latency, ttft=ttft, tpot=tpot))
 
     def save_response(self, file_path):
         record = asdict(response)
@@ -201,7 +252,7 @@ class AysncRequestSender:
                 [f"P{k} = {v:.3f}" for k, v in zip(PERCENTILES, np.percentile(ttft, PERCENTILES))]
             )
             result_data["ttft_percentile"] = ttft_percentile
-            logger.info(f"{phase} TTFT: avg = {np.mean(ttft):.3f}({(total_tokens - generate_tokens) / len(input_requests) / np.mean(ttft):.3f}), {ttft_percentile}")
+            logger.info(f"{phase} TTFT: avg = {np.mean(ttft):.3f}({(total_tokens - generate_tokens) / num_response / np.mean(ttft):.3f}), {ttft_percentile}")
             result_data["avg_TTFT"] = round(np.mean(ttft), 3)
             result_data["avg_prompt_tokens_per_secend"] = round((total_tokens - generate_tokens) / num_responses / np.mean(ttft), 3)
             for percentile, v in zip(PERCENTILES, np.percentile(ttft, PERCENTILES)):
