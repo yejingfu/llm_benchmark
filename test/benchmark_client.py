@@ -154,7 +154,7 @@ def main(args: argparse.Namespace):
         ))
         end_time = time.perf_counter()
         if phase == "Benchmark":
-            sender.dump_response(tokenizer, args.stream, args.gpus, end_time - start_time, args.log_file)
+            sender.dump_response_stats(tokenizer, args.stream, args.gpus, end_time - start_time, args.log_file)
 
 def simple_verify_args(args):
     assert not args.use_beam_search, "do not support benchmark beam search now."

@@ -58,19 +58,19 @@ class AysncRequestSender:
         return None
 
     def get_response(self) -> List[Response]:
-        return self.response
+        return self.responses
 
     async def post_batch_requests_async(self,
         batch_size: int, requests: List[Tuple[str, int, int]],
         model: str, n: int, best_of: int, beam_search: bool, do_sample: bool, presence_penalty: float, frequency_penalty: float, repetition_penalty: float,
         temperature: float, top_p: float, top_k: int, stream: bool, eos_token_id: int,
     ):
-        self.response = []
+        self.responses = []
         semaphore = asyncio.Semaphore(batch_size)
         for _ in range(batch_size - 1):
             await semaphore.acquire()
         ## Create a single task to update semaphore
-        tasks: List[asyncio.Task] = [asyncio.create_task(self._update_sem(semaphore, 1, 60, batch_size - 1))]
+        tasks: List[asyncio.Task] = [asyncio.create_task(self._update_sem(semaphore, 1, 60, batch_size - 1, len(requests)))]
         progress_bar = async_tqdm(total=len(requests), desc="Processing Requests", smoothing=0.0)
         for request in requests:
             prompt, prompt_len, output_len = request
@@ -82,12 +82,14 @@ class AysncRequestSender:
         await asyncio.gather(*tasks)
         progress_bar.close()
 
-    async def _update_sem(self, sem: asyncio.Semaphore, update_interval: int, ramp_up_period: int, batch_size: int):
+    async def _update_sem(self, sem: asyncio.Semaphore, update_interval: int, ramp_up_period: int, batch_size: int, num_requests: int):
         n_parts = ramp_up_period // update_interval
         base = batch_size // n_parts
         remainder = batch_size % n_parts
         partitions = [base] * (n_parts - remainder) + [base + 1] * remainder
         for p in partitions:
+            if len(self.responses) >= num_requests:
+                break
             await asyncio.sleep(update_interval)
             for _ in range(p):
                 sem.release()
@@ -155,9 +157,15 @@ class AysncRequestSender:
                             outputs = []
                             for chunk in chunks:
                                 try:
-                                    data = chunk.rstrip(b"\x00").lstrip(b"data:").rstrip(b"\n\n").strip().decode("utf-8")
-                                    obj = json.loads(data)
-                                    outputs.append(obj["choices"][0]["text"])
+                                    data = chunk.rstrip(b"\x00").rstrip(b"\n\n").strip().decode("utf-8")
+                                    #logger.info(f"data: {data}")
+                                    data_list = data.split("\n\n")
+                                    for data in data_list:
+                                        data = data.lstrip("data:").strip()
+                                        #logger.info(f"sub data: {data}")
+                                        if len(data) > 1:
+                                            obj = json.loads(data)
+                                            outputs.append(obj["choices"][0]["text"])
                                 except json.decoder.JSONDecodeError as err:
                                     logger.warning(f"Failed to load json string: {data}, error: {err}")
                                     continue
@@ -178,17 +186,22 @@ class AysncRequestSender:
             # end of session
             request_end_time = time.perf_counter()
             request_latency = request_end_time - request_start_time
+            #logger.info(f"Generated text from server: {output}")
             self.responses.append(Response(prompt=prompt, generated=output, prompt_len=prompt_len, output_len=output_len, latency=request_latency, ttft=ttft, tpot=tpot))
 
     def save_response(self, file_path):
-        record = asdict(response)
         with open(file_path, "a") as f:
-            json.dump(record, f)
-            f.write("\n")
+            for res in self.responses:
+                record = asdict(res)
+                json.dump(record, f)
+                f.write("\n")
 
     def dump_response_stats(self, tokenizer, stream, gpus, duration, log_file):
+        if log_file is not None and log_file != "":
+            self.save_response(log_file)
+
         num_responses = len(self.responses)
-        if num_response == 0:
+        if num_responses == 0:
             return
         generate_tokens = 0
         for response in self.responses:
@@ -207,17 +220,12 @@ class AysncRequestSender:
             "num_requests": num_responses,
         })
         result_data["total_time"] = round(duration, 2)
-        result_data["tokens_per_second"] = int(total_tokens / duration)
-        result_data["tokens_per_second_per_gpu"] = int(total_tokens / gpus / duration)
+        result_data["*tokens_per_second"] = int(total_tokens / duration)
+        result_data["*tokens_per_second_per_gpu"] = int(total_tokens / gpus / duration)
         result_data["prompt_tokens_per_second"] = int(prompt_tokens / duration)
-        result_data["output_tokens_per_second"] = int(generate_tokens / duration)
-        result_data["output_tokens_per_second_per_gpu"] = int(generate_tokens / gpus / duration)
+        result_data["*output_tokens_per_second"] = int(generate_tokens / duration)
+        result_data["*output_tokens_per_second_per_gpu"] = int(generate_tokens / gpus / duration)
         result_data["requests_per_second"] = round(num_responses / duration, 2)
-
-        logger.info(f"============ Dump responses stats ==========================")
-        max_key_length = max(len(str(k)) for k in result_data.keys())
-        for key, value in result_data.items():
-            print(f"{str(key):<{max_key_length}} | {str(value)}")
 
         # Compute the latency statistics.
         latencies = [response.latency for response in self.responses]
@@ -246,14 +254,13 @@ class AysncRequestSender:
         )
         result_data["avg_latency_per_output_token"] = round(avg_per_output_token_latency, 3)
 
-        if tream:
+        if stream:
             ttft = [response.ttft for response in self.responses]
             ttft_percentile = ", ".join(
                 [f"P{k} = {v:.3f}" for k, v in zip(PERCENTILES, np.percentile(ttft, PERCENTILES))]
             )
             result_data["ttft_percentile"] = ttft_percentile
-            logger.info(f"{phase} TTFT: avg = {np.mean(ttft):.3f}({(total_tokens - generate_tokens) / num_response / np.mean(ttft):.3f}), {ttft_percentile}")
-            result_data["avg_TTFT"] = round(np.mean(ttft), 3)
+            result_data["*avg_TTFT"] = round(np.mean(ttft), 3)
             result_data["avg_prompt_tokens_per_secend"] = round((total_tokens - generate_tokens) / num_responses / np.mean(ttft), 3)
             for percentile, v in zip(PERCENTILES, np.percentile(ttft, PERCENTILES)):
                 result_data[f"TTFT_P{percentile}"] = round(v, 3)
@@ -262,8 +269,7 @@ class AysncRequestSender:
                 [f"P{k} = {v:.3f}" for k, v in zip(PERCENTILES, np.percentile(tpot, PERCENTILES))]
             )
             result_data["tpot_percentile"] = tpot_percentile
-            logger.info(f"{phase} TPOT: avg = {np.mean(tpot):.3f} ({1 / np.mean(tpot):.3f}), {tpot_percentile}")
-            result_data["avg_TPOT"] = round(np.mean(tpot), 3)
+            result_data["*avg_TPOT"] = round(np.mean(tpot), 3)
             result_data["avg_output_tokens_per_second"] = round(1 / np.mean(tpot), 3)
             for percentile, v in zip(PERCENTILES, np.percentile(tpot, PERCENTILES)):
                 result_data[f"TPOT_P{percentile}"] = round(v, 3)
@@ -281,8 +287,9 @@ class AysncRequestSender:
         for key, value in new_data.items():
             print(f"{str(key):<{max_key_length}} | {str(value)}")
 
-        if log_file is not None:
+        if log_file is not None and log_file != "":
             with open(log_file, "a") as f:
+                f.write("\n\n=============\n\n")
                 json.dump(new_data, f)
                 f.write("\n")
 
