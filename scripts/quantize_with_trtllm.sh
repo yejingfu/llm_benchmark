@@ -64,7 +64,7 @@ function do_quantize() {
     echo "touch /tmp_scripts/completed">>$CUR_DIR/$tmp_script
     chmod +x $CUR_DIR/$tmp_script
 
-    opts=" -itd --rm --gpus all --ipc=host --ulimit memlock=-1 --name $QUANTIZE_CONTAINER --entrypoint /bin/bash"
+    opts=" -itd --gpus all --ipc=host --ulimit memlock=-1 --name $QUANTIZE_CONTAINER --entrypoint /bin/bash"
     opts="$opts -v $HF_MODEL_DIR:$HF_MODEL_DIR -v $HF_DATASETS_DIR:/root/.cache/huggingface/datasets -v $OUTPUT_DIR:$OUTPUT_DIR -v $CUR_DIR:/tmp_scripts"
 
     LOG INFO "docker run $opts $TRTLLM_IMAGE /tmp_scripts/$tmp_script"
@@ -92,7 +92,7 @@ function do_quantize() {
         ## remove the container if it still exists
         docker rm -f $QUANTIZE_CONTAINER
     fi
-    LOG INFO "Succeed to convert HF checkpoints to $cp_model"
+    LOG INFO "Succeed to convert HF checkpoints to $OUTPUT_DIR"
 }
 
 function main() {
