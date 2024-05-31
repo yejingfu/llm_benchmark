@@ -15,6 +15,14 @@ from typing import AsyncGenerator, List, Optional, Tuple
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 
+VLLM_ENDPOINTS = {
+    "version": "/version",
+    "health": "/health",
+    "models": "/v1/models",
+    "completions": "/v1/completions",
+    "chat-completions": "/v1/chat/completions"
+}
+
 @dataclass
 class RequestInput:
     prompt: str
@@ -84,7 +92,6 @@ async def async_request_openai_completions(
         st = time.perf_counter()
         most_recent_timestamp = st
         try:
-            print(f"Post requests to: {api_url}")
             iter = 0
             async with session.post(url=api_url, json=payload, headers=headers) as response:
                 if response.status == 200:
@@ -138,43 +145,96 @@ def check_health(url: str, ) -> bool:
         pass
     return False
 
+def get_version(url: str):
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.text
+        else:
+            print(f"get_version: {res}")
+    except e:
+        print(f"Exception is raised: {e}")
+    return ""
+
+
+
+def list_models(url: str):
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.text
+        else:
+            print(f"list_models: {res}")
+    except e:
+        print(f"Exception is raised: {e}")
+    return ""
+
 def main(args):
-    print(args)
-    input = RequestInput(
-        prompt=args.prompt,
-        api_url=f"{args.url}{args.endpoint}",
-        output_len=args.output_len,
-        stream=args.stream,
-        ignore_eos=(args.ignore_eos if args.ignore_eos is not None else False),
-    )
-    url_health = args.url
-    if args.backend == "vllm":
-        url_health += "/health"
-    
-    if check_health(url_health):
-        print("OpenAI Completions API is healthy.")
-    else:
-        print(f"Error: OpenAI Completions API is not healthy: {url_health}.")
+    if args.backend != "vllm":
+        print("Only support vllm")
         return
-    print(input)
-    print_chunck = True
-    start_time = time.time()
-    result = asyncio.run(async_request_openai_completions(input, print_progress = print_chunck))
-    end_time = time.time()
-    #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
-    print(f"Time elapsed: {end_time - start_time} seconds.")
-    if result.success:
-        print("DONE")
-        if not args.stream and not print_chunck:
-            print(f"Generated text: {result.generated_text}")
+    action = None
+    for k, v in VLLM_ENDPOINTS.items():
+        if args.path == v:
+            action = k
+            break
+    if not action:
+        print(f"Invalid path: {args.path}")
+        return
+    url = args.url + args.path
+    print(f"Request: {url}")
+
+    if action == "health":
+        if check_health(url):
+            print("Health check is passed")
+        else:
+            print("Health check is failed")
+    elif action == "version":
+        ver_str = get_version(url)
+        if ver_str:
+            ver = json.loads(ver_str)
+        else:
+            print(f"unknown version: {ver_str}")
+    elif action == "models":
+        models_str = list_models(url)
+        if models_str:
+            models = json.loads(models_str)
+            index = 1
+            for m in models['data']:
+                print(f"Model[{index}]: {m['id']}, {m['object']}")
+                index += 1
+        else:
+            print(f"unknown models: {models_str}")
+    elif action == "completions":
+        input = RequestInput(
+            api_url = url,
+            prompt = args.prompt,
+            output_len = args.output_len,
+            stream = args.stream,
+            ignore_eos = (args.ignore_eos if args.ignore_eos is not None else False),
+        )
+        print(input)
+        print_chunck = True
+        start_time = time.time()
+        result = asyncio.run(async_request_openai_completions(input, print_progress = print_chunck))
+        end_time = time.time()
+        #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
+        print(f"Time elapsed: {end_time - start_time} seconds.")
+        if result.success:
+            if not args.stream and not print_chunck:
+                print(f"Generated text: {result.generated_text}")
+        else:
+            print(f"Error: {result.error}")
     else:
-        print(f"Error: {result.error}")
+        print(f"Not support path: {args.path}")
+        return
+    return
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Demonstration about llm openapi.")
     parser.add_argument("--url", type=str, help="The host URL of the llm openapi server.", default="http://localhost:8000")
     parser.add_argument("--backend", type=str, help="The backend of the llm openapi server.", default="vllm", choices=["vllm", "trtllm"])
-    parser.add_argument("--endpoint", type=str, help="The endpoint of the llm openapi server.", default="/v1/completions")
+    parser.add_argument("--path", type=str, help=f"The URL path of the llm openapi server. Its values can be: {VLLM_ENDPOINTS}", default="/v1/completions")
     parser.add_argument("--prompt", type=str, help="The prompt for the completion.", default="The quick brown fox jumps over the lazy dog.")
     parser.add_argument("--output-len", type=int, help="The maximum length of the output.", default=1024)
     parser.add_argument("--ignore-eos", action="store_true", help="Force to ouput the maximum length of the output, ignore eos when found.")
