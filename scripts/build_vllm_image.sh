@@ -6,9 +6,9 @@ source $CUR_DIR/base.sh
 
 ### example
 ### Build a image including llama3-8B
-# build_vllm_image.sh --vllm-src </path/to/vllm> --cutlass-src </path/to/cutlass-source> --model-dir </path/to/Meta-Llama-3-8B-Instruct> --model-name llama3_8b --test-data-dir </path/to/dataset> --open-webui-dir=</path/to/webui> --tag ppinfer_vllm_llama3_8b:0.4.2x
+# build_vllm_image.sh --vllm-src </path/to/vllm> --cutlass-src </path/to/cutlass-source> --model-dir </path/to/Meta-Llama-3-8B-Instruct> --model-name llama3_8b --test-data-dir </path/to/dataset> --open-webui-dir=</path/to/webui> --tag ppinfer_vllm_llama3_8b:0.1.0
 # for example:
-# build_vllm_image.sh --vllm-src /home/ppio/linke/code/vllm --cutlass-src /home/ppio/linke/code/cutlass --model-dir /models/Meta-Llama-3-8B-Instruct --model-name llama3-8b --test-data-dir /models/ShareGPT_Vicuna_unfiltered --open-webui-dir /home/ppio/linke/code/open-webui --tag ppinfer_vllm_llama3_8b:0.4.2x
+# build_vllm_image.sh --vllm-src /home/ppio/linke/code/vllm --cutlass-src /home/ppio/linke/code/cutlass --model-dir /models/Meta-Llama-3-8B-Instruct --model-name llama3-8b --test-data-dir /models/ShareGPT_Vicuna_unfiltered --open-webui-dir /home/ppio/linke/code/open-webui --tag ppinfer_vllm_llama3_8b:0.1.0
 
 VLLM_SRC_DIR=
 CUTLASS_DIR=

@@ -29,7 +29,7 @@ class RequestInput:
     api_url: str
     prompt_len: int = 0
     output_len: int = 0
-    model: str = "default"
+    model: str = ""
     best_of: int = 1
     use_beam_search: bool = False
     stream: bool = True
@@ -193,6 +193,7 @@ def main(args):
         ver_str = get_version(url)
         if ver_str:
             ver = json.loads(ver_str)
+            print(f"Version: {ver['version']}")
         else:
             print(f"unknown version: {ver_str}")
     elif action == "models":
@@ -209,6 +210,7 @@ def main(args):
         input = RequestInput(
             api_url = url,
             prompt = args.prompt,
+            model = args.model_name,
             output_len = args.output_len,
             stream = args.stream,
             ignore_eos = (args.ignore_eos if args.ignore_eos is not None else False),
@@ -236,6 +238,7 @@ if __name__ == "__main__":
     parser.add_argument("--backend", type=str, help="The backend of the llm openapi server.", default="vllm", choices=["vllm", "trtllm"])
     parser.add_argument("--path", type=str, help=f"The URL path of the llm openapi server. Its values can be: {VLLM_ENDPOINTS}", default="/v1/completions")
     parser.add_argument("--prompt", type=str, help="The prompt for the completion.", default="The quick brown fox jumps over the lazy dog.")
+    parser.add_argument("--model-name", type=str, help="The model name for completions.", default="llama3-8b")
     parser.add_argument("--output-len", type=int, help="The maximum length of the output.", default=1024)
     parser.add_argument("--ignore-eos", action="store_true", help="Force to ouput the maximum length of the output, ignore eos when found.")
     parser.add_argument("--stream", action="store_true", help="Whether to stream the output or not.")
