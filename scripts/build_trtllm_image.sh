@@ -8,6 +8,7 @@ TRTLLM_BACKEND_GIT="https://github.com/triton-inference-server/tensorrtllm_backe
 TRTLLM_BACKEND_REV="v0.9.0"
 TRTLLM_IMAGE_TAG="ppinfer_triton_trtllm:24.02"
 TRTLLM_BACKEND_DIR=
+TRTLLM_ENGINE_DIR=
 
 function usage() {
     PRG_NAME=$(basename "${BASH_SOURCE[0]}")
@@ -52,6 +53,9 @@ function check_arguments() {
         git lfs pull
         popd
     fi
+    if [ ! -d "$TRTLLM_BACKEND_DIR/$TRTLLM_ENGINE_DIR" ]; then
+        LOG ERR "The tensorrt_llm engine dir is not exist in $TRTLLM_BACKEND_DIR, please check it..."
+    fi
     name=(${TRTLLM_IMAGE_TAG//:/ })
     images=`docker images $TRTLLM_IMAGE_TAG`
     if [[ $images =~ "${name[0]}" ]]; then
@@ -63,7 +67,7 @@ function check_arguments() {
 function build_image() {
     LOG INFO "Build docker image $TRTLLM_IMAGE_TAG from $TRTLLM_BACKEND_DIR"
     pushd $TRTLLM_BACKEND_DIR
-    DOCKER_BUILDKIT=1 docker build -t $TRTLLM_IMAGE_TAG -f dockerfile/Dockerfile.trt_llm_backend .
+    DOCKER_BUILDKIT=1 docker build -t $TRTLLM_IMAGE_TAG --build-arg TRTLLM_ENGINE_DIR=$TRTLLM_ENGINE_DIR -f $CUR_DIR/trtllm/dockerfile/Dockerfile.trt_llm_backend_engine .
     popd
 }
 
@@ -87,6 +91,11 @@ function main() {
     --image_tag)
         shift
         TRTLLM_IMAGE_TAG="$1"
+        shift
+        ;;
+    --trtllm_engine)
+        shift
+        TRTLLM_ENGINE_DIR="$1"
         shift
         ;;
     *)
