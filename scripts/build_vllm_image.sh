@@ -16,6 +16,7 @@ MODEL_DIR=
 MODEL_NAME=
 TEST_DATA_DIR=
 OPEN_WEBUI_DIR=
+BUILD_DEV=prod
 TAG=
 
 function usage() {
@@ -26,6 +27,7 @@ function usage() {
     LOG INFO "  --model-name The model name, if it's set, parse from model path"
     LOG INFO "  --test-data-dir The path to the dataset which is used for benmark testing"
     LOG INFO "  --open-webui-dir The path to the source code of Open-WebUI, you can downlaod it from https://github.com/open-webui/open-webui"
+    LOG INFO "  --dev Build the image form development, including tests, otherwise build image for production"
     LOG INFO "  --tag  The docker image tag we want to build from vLLM source code"
     exit
 }
@@ -88,7 +90,7 @@ function build() {
         cp $CUR_DIR/../test/dataset_sampler.py benchmark_ppio/test/
         cp $CUR_DIR/../test/llm_api_demo.py benchmark_ppio/test/
     fi
-    DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_NAME=$MODEL_NAME -t $TAG -f Dockerfile.ppio .
+    DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_NAME=$MODEL_NAME --build-arg ENVIRONMENT=$BUILD_DEV -t $TAG -f Dockerfile.ppio .
     rm -rf open-webui
     rm -rf $MODEL_NAME
     rm -rf cutlass
@@ -135,6 +137,10 @@ function main() {
         shift
         OPEN_WEBUI_DIR="$1"
         shift
+        ;;
+    --dev)
+        shift
+        BUILD_DEV=dev
         ;;
     --tag)
         shift
