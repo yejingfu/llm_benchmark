@@ -27,6 +27,7 @@ class Response:
     prompt_len: int = field(default=0)
     output_len: int = field(default=0)
     latency: float = field(default=0.0)
+    decode_latency: float = field(default=0.0)
     ttft: Optional[float] = field(default=None)
     tpot: Optional[float] = field(default=None)
 
@@ -107,7 +108,7 @@ class AysncRequestSender:
     ):
         # prepare header, payload and params
         timeout = aiohttp.ClientTimeout(total=3600 * 3)
-        retry = 10
+        retry = 1
         first_token_time = None
         ttft = None
         tpot = None
@@ -147,6 +148,7 @@ class AysncRequestSender:
         async with semaphore:
             request_start_time = time.perf_counter()
             request_end_time = 0
+            first_token_time = 0
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 for i in range(retry):
                     #logger.info(f"try: {i}")
@@ -156,42 +158,28 @@ class AysncRequestSender:
                             if res.status != 200:
                                 logger.error(f"Failed to send request: {self.base_url + self.ep_completion}, status: {res.status}")
                                 return False
-                            chunks = []
-                            async for chunk, _ in res.content.iter_chunks():
-                                chunks.append(chunk)
-                                if ttft is None:
-                                    # got first token
-                                    first_token_time = time.perf_counter()
-                                    ttft = first_token_time - request_start_time
-                        # returned from post
-                        if output_len > 1:
-                            tpot = (time.perf_counter() - first_token_time) / (output_len - 1)
-                        if stream:
-                            outputs = []
-                            for chunk in chunks:
-                                try:
-                                    data = chunk.rstrip(b"\x00").rstrip(b"\n\n").strip().decode("utf-8")
-                                    #logger.info(f"data: {data}")
-                                    data_list = data.split("\n\n")
-                                    for data in data_list:
-                                        data = data.lstrip("data:").strip()
-                                        #logger.info(f"sub data: {data}")
-                                        if len(data) > 1:
-                                            if data == "[DONE]":
-                                                request_end_time = time.perf_counter()
-                                                break
-                                            obj = json.loads(data)
-                                            outputs.append(obj["choices"][0]["text"])
-                                except json.decoder.JSONDecodeError as err:
-                                    logger.warning(f"Failed to load json string: {data}, error: {err}")
+                            async for chunk_bytes in res.content:
+                                chunk_bytes = chunk_bytes.strip()
+                                if not chunk_bytes:
                                     continue
-                                except Exception as err:
-                                    logger.warning(f"Failed to handle streaming chunk: {chunk}, error: {err}")
-                                    continue
-                            output = "".join(outputs)
-                        else:
-                            output = b"".join(chunks).decode("utf-8")
-                            # output = json.loads(output)
+                                chunk = chunk_bytes.decode("utf-8")
+                                if chunk.startswith("data: "):
+                                    chunk = chunk[6:]
+                                if chunk == "[DONE]":
+                                    request_end_time = time.perf_counter()
+                                else:
+                                    obj = json.loads(chunk)
+                                    if obj["choices"][0]["text"]:
+                                        if ttft is None:
+                                            first_token_time = time.perf_counter()
+                                            ttft = first_token_time - request_start_time
+                                        output += obj["choices"][0]["text"]
+                        break
+                    except json.decoder.JSONDecodeError as err:
+                        logger.warning(f"Failed to load json string: {data}, error: {err}")
+                        break
+                    except Exception as err:
+                        logger.warning(f"Failed to handle streaming chunk: {chunk}, error: {err}")
                         break
                     except aiohttp.ClientError as e:
                         if i < retry - 1:
@@ -203,8 +191,11 @@ class AysncRequestSender:
             if request_end_time == 0:
                 request_end_time = time.perf_counter()
             request_latency = request_end_time - request_start_time
+            decode_latency = request_end_time - first_token_time
+            if output_len > 1:
+                tpot = decode_latency / (output_len - 1)
             # logger.info(f"Generated text from server: {output}")
-            self.responses.append(Response(prompt=prompt, generated=output, prompt_len=prompt_len, output_len=output_len, latency=request_latency, ttft=ttft, tpot=tpot))
+            self.responses.append(Response(prompt=prompt, generated=output, prompt_len=prompt_len, output_len=output_len, latency=request_latency, decode_latency=decode_latency, ttft=ttft, tpot=tpot))
             return True
 
     def save_response(self, file_path):
@@ -232,7 +223,7 @@ class AysncRequestSender:
             #logger.info(f"output len: {generated_len}, {response.output_len}")
             if abs(generated_len - response.output_len) > 10:
                 logger.warning(f"expect generated {response.output_len} tokens, but got {len(generated_tokens)}.")
-                response.tpot = round(response.latency / generated_len, 2)
+                response.tpot = round(response.decode_latency / generated_len, 2)
 
         total_prompt_tokens = np.sum([response.prompt_len for response in self.responses])
         total_tokens = total_prompt_tokens + total_generate_tokens

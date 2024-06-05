@@ -170,6 +170,8 @@ def simple_verify_args(args):
         assert (args.temperature > 0.0), "temperature must be greater than 0.0 when do_sample is True."
     else:
         assert args.top_k == 1 and args.top_p == 1.0 and args.temperature == 0.0
+    if not args.stream:
+        logger.warning("The --stream is not set, are you sure run in non-stream mode?")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
