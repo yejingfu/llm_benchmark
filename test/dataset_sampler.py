@@ -116,6 +116,7 @@ class DatasetSampler:
         elif policy == "fixed":
             fixed_prompt_len = kwargs["fixed_prompt_len"]
             fixed_output_len = kwargs["fixed_output_len"]
+            logger.info(f"sampling with fixed policy, fixed_prompt_len: {fixed_prompt_len}, fixed_output_len: {fixed_output_len}")
             permutation = np.random.permutation(len(self.samples))
             shuffled_data = [self.samples[i] for i in permutation]
             for data in shuffled_data:

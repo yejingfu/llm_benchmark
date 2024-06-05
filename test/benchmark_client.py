@@ -98,16 +98,22 @@ def main(args: argparse.Namespace):
     logger.info(args)
     logger.info("\n\n")
 
-
-
     sender = AysncRequestSender(args.backend, args.base_url, args.api_key, args.endpoint_models, args.endpoint_chat, args.endpoint_completion)
     if not sender.check_health(10):
         logger.error(f"Failed to check the healthy of the inference server")
+        return
     str_models = sender.get_models()
     if str_models is None:
         logger.error("No valid models supported from server")
         return
     logger.info(f"[Model list]: {str_models}")
+    json_models = json.loads(str_models)
+    model_list = []
+    for model in json_models['data']:
+        model_list.append(model['id'])
+    logger.info(f"Supported models: {model_list}")
+    if args.model not in model_list:
+        logger.error(f"The LLM server does not support this model: {args.model}")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
