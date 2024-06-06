@@ -95,7 +95,7 @@ def main(args: argparse.Namespace):
 
     random.seed(args.seed)
     np.random.seed(args.seed)
-    sender = AysncRequestSender(args.backend, args.base_url, args.api_key, args.endpoint_models, args.endpoint_chat, args.endpoint_completion, SYS_PROMPT)
+    sender = AysncRequestSender(args.backend, args.base_url, args.api_key, args.endpoint_models, args.endpoint_chat, args.endpoint_completion, SYS_PROMPT if args.add_system_prompt else None)
     if not args.ignore_check:
         if not sender.check_health(10):
             logger.error(f"Failed to check the healthy of the inference server")

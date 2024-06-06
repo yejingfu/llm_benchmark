@@ -169,11 +169,20 @@ class AysncRequestSender:
                                     request_end_time = time.perf_counter()
                                 else:
                                     obj = json.loads(chunk)
-                                    if obj["choices"][0]["text"]:
+                                    choice0 = obj["choices"][0]
+                                    content = None
+                                    if "text" in choice0: ## completions API
+                                        content = choice0["text"]
+                                    elif "delta" in choice0: ## chat-completions API
+                                        #if "role" in choice0["delta"] and choice0["delta"]["role"] == "assistant" and "content" in choice0["delta"]:
+                                        if "content" in choice0["delta"]:
+                                            content = choice0["delta"]["content"]
+                                    if content is not None:
                                         if ttft is None:
                                             first_token_time = time.perf_counter()
                                             ttft = first_token_time - request_start_time
-                                        output += obj["choices"][0]["text"]
+                                        output += content
+
                         break
                     except json.decoder.JSONDecodeError as err:
                         logger.warning(f"Failed to load json string: {chunk}, error: {err}")

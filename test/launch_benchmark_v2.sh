@@ -7,7 +7,7 @@ source $CUR_DIR/../scripts/base.sh
 ## launch_benchmark_v2.sh --model-name llama3-8b --tokenizer /models/Meta-Llama-3-8B-Instruct --dataset /models/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json --backend vllm-local
 ## launch_benchmark_v2.sh --model-name meta-llama/llama-3-8b-instruct --tokenizer /models/Meta-Llama-3-8B-Instruct --dataset /models/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json --backend novita --base-url https://api.novita.ai --api-key xxxxx
 
-BM_PRESET_BACKEND=("vllm" "vllm-local" "trtllm" "novita")
+BM_PRESET_BACKEND=("vllm" "vllm-local" "trtllm" "novita", "siliconflow")
 BM_BACKEND=
 BM_API_KEY=
 BM_BASE_URL=
@@ -41,6 +41,7 @@ function usage() {
 
 function run() {
     local path_prefix="/v1"
+    local extra_args="$BM_DRY_RUN"
     if [[ ! ${BM_PRESET_BACKEND[@]} =~ $BM_BACKEND ]]; then
         LOG ERR "The backend should be one of (${BM_PRESET_BACKEND[@]})"
     fi
@@ -52,6 +53,8 @@ function run() {
         BM_NUM_WARMUP=16
     elif [ x"$BM_BACKEND" = x"novita" ]; then
         path_prefix="/v3/openai"
+    elif [ x"$BM_BACKEND" = x"siliconflow" ]; then
+        extra_args="$extra_args --ignore-check"
     fi
     if [ $BM_NUM_WARMUP -gt $BM_NUM_BENCHMARK ]; then
         BM_NUM_WARMUP=$BM_NUM_BENCHMARK
@@ -78,7 +81,7 @@ function run() {
     if [ $BM_CHAT -eq 1 ]; then
         args="$args --api-kind chat"
     fi
-    args="$args --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --log-file benchmark_${BM_BACKEND}.log $BM_DRY_RUN"
+    args="$args --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --log-file benchmark_${BM_BACKEND}.log $extra_args"
 
     if [ x"$BM_DRY_RUN" = x"--dry-run" ]; then
         LOG INFO "[RUN]: python $CUR_DIR/benchmark_client.py $args"
