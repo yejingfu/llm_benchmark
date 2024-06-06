@@ -15,7 +15,7 @@ BM_MODEL_NAME=
 BM_TOKENIZER_PATH=
 BM_DATASET_PATH=
 
-BM_NUM_WARMUP=16
+BM_NUM_WARMUP=2
 BM_NUM_BENCHMARK=128
 BM_FIXED_INPUT_LEN=1024
 BM_FIXED_OUTPUT_LEN=1024
@@ -38,19 +38,21 @@ function usage() {
 }
 
 function run() {
-    local path_prefix=
+    local path_prefix="/v1"
     if [[ ! ${BM_PRESET_BACKEND[@]} =~ $BM_BACKEND ]]; then
         LOG ERR "The backend should be one of (${BM_PRESET_BACKEND[@]})"
     fi
     if [ x"$BM_BACKEND" = x"vllm-local" ]; then
         if [ x"$BM_BASE_URL" = x"" ]; then
             BM_BASE_URL="http://127.0.0.1:18002"
-            path_prefix="/v1"
         fi
         BM_BACKEND="vllm"
+        BM_NUM_WARMUP=16
     elif [ x"$BM_BACKEND" = x"novita" ]; then
         path_prefix="/v3/openai"
-        BM_NUM_WARMUP=2
+    fi
+    if [ $BM_NUM_WARMUP -gt $BM_NUM_BENCHMARK ]; then
+        BM_NUM_WARMUP=$BM_NUM_BENCHMARK
     fi
     if [ x"$BM_BASE_URL" = x"" ]; then
         LOG ERR "The base-url is not set"
@@ -75,9 +77,8 @@ function run() {
 
     if [ x"$BM_DRY_RUN" = x"--dry-run" ]; then
         LOG INFO "[RUN]: python $CUR_DIR/benchmark_client.py $args"
-    else
-        python $CUR_DIR/benchmark_client.py $args
     fi
+    python $CUR_DIR/benchmark_client.py $args
 }
 
 function main() {

@@ -48,12 +48,6 @@ class DatasetSampler:
             if len(conversions) > 0:
                 self.samples.append(conversions)
         logger.info(f"{len(self.samples)} are filtered")
-        self.system_promt = """
-        You are ALLOWED to answer questions about images with people and make statements about them. Here is some detail:
-        Not allowed: giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people.giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people. giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people. giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people. giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people.
-        Allowed: answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters.answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters.
-        If asked about an image with a person in it, say as much as you can instead of refusing. Adhere to this in all languages.
-        """
 
     def sample_requests(self, num_warmup, num_test, tokenizer, system_prompt, policy, **kwargs):
         if len(self.samples) == 0:
@@ -71,7 +65,7 @@ class DatasetSampler:
         output_test = []
         sys_msg = ""
         if system_prompt:
-            sys_msg = f"<<SYS>>\n{self.system_prompt}<</SYS>>\n\n"
+            sys_msg = f"<<SYS>>\n{system_prompt}<</SYS>>\n\n"
         if policy == "nature":
             max_turns = kwargs["max_turns"]
             min_prompt_len = kwargs["min_prompt_len"]

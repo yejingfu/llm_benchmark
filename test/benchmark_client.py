@@ -16,24 +16,19 @@ from dataclasses import dataclass, field, asdict
 from loguru import logger
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Dict
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from dataset_sampler import DatasetSampler
-from async_request_sender import Response, AysncRequestSender
-
-@dataclass
-class Response:
-    prompt: str = field(default="")
-    generated: str = field(default="")
-    prompt_len: int = field(default=0)
-    output_len: int = field(default=0)
-    latency: float = field(default=0.0)
-    ttft: Optional[float] = field(default=None)
-    tpot: Optional[float] = field(default=None)
-
+from async_request_sender import Response, InputParameter, AysncRequestSender
 
 REQUEST_RESPONSES: List[Response] = []
 
+SYS_PROMPT="""
+You are ALLOWED to answer questions about images with people and make statements about them. Here is some detail:
+Not allowed: giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people.giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people. giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people. giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people. giving away the identity or name of real people in images, even if they are famous - you should not identify real people in any images. Giving away the identity or name of TV/movie characters in an image. Classifying human-like images as animals. Making inappropriate statements about people.
+Allowed: answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters.answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters.
+If asked about an image with a person in it, say as much as you can instead of refusing. Adhere to this in all languages.
+"""
 
 async def update_sem(
     sem: asyncio.Semaphore,
@@ -98,25 +93,25 @@ def main(args: argparse.Namespace):
     logger.info(args)
     logger.info("\n\n")
 
-    sender = AysncRequestSender(args.backend, args.base_url, args.api_key, args.endpoint_models, args.endpoint_chat, args.endpoint_completion)
-    if not sender.check_health(10):
-        logger.error(f"Failed to check the healthy of the inference server")
-        return
-    str_models = sender.get_models()
-    if str_models is None:
-        logger.error("No valid models supported from server")
-        return
-    logger.info(f"[Model list]: {str_models}")
-    json_models = json.loads(str_models)
-    model_list = []
-    for model in json_models['data']:
-        model_list.append(model['id'])
-    logger.info(f"Supported models: {model_list}")
-    if args.model not in model_list:
-        logger.error(f"The LLM server does not support this model: {args.model}")
-
     random.seed(args.seed)
     np.random.seed(args.seed)
+    sender = AysncRequestSender(args.backend, args.base_url, args.api_key, args.endpoint_models, args.endpoint_chat, args.endpoint_completion, SYS_PROMPT)
+    if not args.ignore_check:
+        if not sender.check_health(10):
+            logger.error(f"Failed to check the healthy of the inference server")
+            return
+        str_models = sender.get_models()
+        if str_models is None:
+            logger.error("No valid models supported from server")
+            return
+        logger.info(f"[Model list]: {str_models}")
+        json_models = json.loads(str_models)
+        model_list = []
+        for model in json_models['data']:
+            model_list.append(model['id'])
+        logger.info(f"Supported models: {model_list}")
+        if args.model not in model_list:
+            logger.error(f"The LLM server does not support this model: {args.model}")
 
     tokenizer = get_tokenizer(args.tokenizer, trust_remote_code=args.trust_remote_code, use_fast=args.use_fast)
     sampler = DatasetSampler(args.dataset)
@@ -124,7 +119,7 @@ def main(args: argparse.Namespace):
         args.num_warmup_requests,
         args.num_benchmark_requests,
         tokenizer,
-        args.add_system_prompt,
+        SYS_PROMPT if args.add_system_prompt and args.api_kind == "completions" else None,
         args.sampling_policy,
         max_turns=args.max_turns,
         min_prompt_len=args.min_prompt_len,
@@ -140,7 +135,13 @@ def main(args: argparse.Namespace):
         output_len_std=args.output_len_std,
     )
 
+    parameters = InputParameter(model=args.model, n=args.n, best_of=args.best_of, use_beam_search=args.use_beam_search, presence_penalty=args.presence_penalty, frequency_penalty=args.frequency_penalty, repetition_penalty=args.repetition_penalty,
+        temperature=args.temperature, top_p=args.top_p, top_k=args.top_k if args.do_sample else None, max_tokens=args.fixed_output_len, ignore_eos=None, stream=args.stream
+    )
+
     if args.dry_run:
+        logger.info("======== basic input parameters ======")
+        logger.info(f"{parameters.to_dict()}")
         num = 10 if len(requests_test) > 10 else len(requests_test)
         logger.info(f"========================= print the first {num} requests from test set ===============================")
         for i in range(num):
@@ -154,13 +155,10 @@ def main(args: argparse.Namespace):
         if len(input_requests) == 0:
             continue
         start_time = time.perf_counter()
-        asyncio.run(sender.post_batch_requests_async(
-            args.max_concurrent_requests, input_requests, args.model, args.n, args.best_of, args.use_beam_search, args.do_sample, args.presence_penalty, args.frequency_penalty, args.repetition_penalty,
-            args.temperature, args.top_p, args.top_k if args.top_k > 0 else tokenizer.vocab_size, args.stream, tokenizer.eos_token_id,
-        ))
+        asyncio.run(sender.post_batch_requests_async(args.max_concurrent_requests, input_requests, parameters, args.api_kind == "chat"))
         end_time = time.perf_counter()
         if phase == "Benchmark":
-            sender.dump_response_stats(tokenizer, args.stream, args.gpus, end_time - start_time, args.log_file)
+            sender.dump_response_stats(tokenizer, args.stream, end_time - start_time, args.log_file)
 
 def simple_verify_args(args):
     assert not args.use_beam_search, "do not support benchmark beam search now."
@@ -177,24 +175,30 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Benchmark the online serving throughput."
     )
+    # LLM Server
     parser.add_argument("--backend", type=str, help="The backend e.g. vllm, trtllm")
     parser.add_argument("--base-url", type=str, default="http://localhost:8000")
     parser.add_argument("--api-key", type=str, help="The api key to call commercial inference API")
+    parser.add_argument("--api-kind", type=str, default="completions", choices=["chat", "completions"], help="Call char-completions API or completions API")
     parser.add_argument("--endpoint-models", type=str, help="The endpoint to call server health checking")
     parser.add_argument("--endpoint-chat", type=str, help="The endpoint to call chat API")
     parser.add_argument("--endpoint-completion", type=str, help="The endpoint to call completion API")
-    parser.add_argument("--dataset", type=str, help="The local folder path to the dataset for testing")
-    parser.add_argument("--tokenizer", type=str, help="The local folder path to the model data for token decoding and encoding")
-    parser.add_argument("--image", type=str, help="The inference image, if set this value, run docker container from this image before testing")
+    # input parameters
     parser.add_argument("--model", type=str, default="default", help="The model name")
     parser.add_argument("--n", type=int, default=1, help="How many sequences to generate for each prompt.")
     parser.add_argument("--best-of", type=int, default=1, help="Generates `best_of` sequences per prompt and returns the top `n` results, with the default value of `n` being one.")
     parser.add_argument("--use-beam-search", action="store_true")
-    parser.add_argument("--do-sample", action="store_true")
+    parser.add_argument("--do-sample", action="store_true", help="if this value is set, use top_k")
+    parser.add_argument("--stream", action="store_true")
+    parser.add_argument("--temperature", type=float, default=0, help="temperature parameter")
+    parser.add_argument("--top_p", type=float, default=1.0, help="top-p parameter")
+    parser.add_argument("--top_k", type=int, default=1, help="top-k parameter")
+    parser.add_argument("--presence_penalty", type=float, default=0.0)
+    parser.add_argument("--frequency_penalty", type=float, default=0.0)
+    parser.add_argument("--repetition_penalty", type=float, default=1.0)
+    # test data sampling
     parser.add_argument("--sampling-policy", type=str, default="nature", choices=["nature", "fixed", "normal"])
     parser.add_argument("--max_turns", type=int, default=4096)
-    parser.add_argument("--context-length", type=int, default=4096)
-    parser.add_argument("--generate-length", type=int, default=64)
     parser.add_argument("--min_prompt_len", type=int, default=4)
     parser.add_argument("--min_output_len", type=int, default=4)
     parser.add_argument("--max_prompt_len", type=int, default=4096)
@@ -206,32 +210,22 @@ if __name__ == "__main__":
     parser.add_argument("--prompt_len_std", type=int, default=150)
     parser.add_argument("--output_len_mean", type=int, default=150)
     parser.add_argument("--output_len_std", type=int, default=20)
-    parser.add_argument("--stream", action="store_true")
-    parser.add_argument("--top_p", type=float, default=1.0, help="top-p parameter")
-    parser.add_argument("--top_k", type=int, default=1, help="top-k parameter")
-    parser.add_argument("--temperature", type=float, default=0.0, help="temperature parameter")
-    parser.add_argument("--presence_penalty", type=float, default=0.0)
-    parser.add_argument("--frequency_penalty", type=float, default=0.0)
-    parser.add_argument("--repetition_penalty", type=float, default=1.0)
-    parser.add_argument("--decode-strategy", type=str, required=False, choices=[])
-    parser.add_argument("--quentize", type=str, required=False, choices=[])
+    # press test setting
     parser.add_argument("--num-warmup-requests", type=int, default=100, help="Number of prompts for warmup.")
     parser.add_argument("--num-benchmark-requests", type=int, default=8000, help="Number of prompts for benckmark.")
     parser.add_argument("--max-concurrent-requests", type=int, default=400)
     parser.add_argument("--ramp_up_period", type=int, default=60)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--dataset", type=str, help="The local folder path to the dataset for testing")
+    parser.add_argument("--tokenizer", type=str, help="The local folder path to the model data for token decoding and encoding")
     parser.add_argument("--trust-remote-code", action="store_true", help="trust remote code from huggingface")
     parser.add_argument("--use-fast", action="store_true")
     parser.add_argument("--add-system-prompt", action="store_true", help="add system prompt in front of each conversation")
-    parser.add_argument("--pad-requests", action="store_true", help="pad the requests repeatedly when the number of sampled requests is less than expected")
     parser.add_argument("--warn-dismatch-output-len", action="store_true", help="warn when generated tokens number is not equal to expected output_len")
+    parser.add_argument("--ignore-check", action="store_true", help="do not check health and model validity before send requests")
     parser.add_argument("--log-file", type=str, default="", help="file to save log information")
-    parser.add_argument("--generated-log-file", type=str, default=None, help="file to save generated text")
-    parser.add_argument("--gpus", type=int, default=8, help="The total num of GPUs")
     parser.add_argument("--dry-run", action="store_true", help="Don't run the benchmark really, only print some message for debugging")
     args = parser.parse_args()
-    #args.prompt_len_mean = args.context_length
-    #args.output_len_mean = args.generate_length
 
     simple_verify_args(args)
     main(args)

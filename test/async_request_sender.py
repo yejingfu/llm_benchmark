@@ -8,15 +8,17 @@ import random
 import requests
 import subprocess
 import time
+import copy
 
 from collections import OrderedDict
 from dataclasses import dataclass, field, asdict
 from loguru import logger
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Dict
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
+PRINT_GENERATE_TEXT=False
 STRICT_SEMAPHORE=False
 PERCENTILES = [25, 50, 75, 90, 95, 99, 99.9, 99.99]
 
@@ -31,8 +33,34 @@ class Response:
     ttft: Optional[float] = field(default=None)
     tpot: Optional[float] = field(default=None)
 
+@dataclass
+class InputParameter:
+    model: str = field(default="")
+    prompt: Optional[str] = field(default=None)
+    messages: Optional[List[Dict[str, str]]] = field(default=None)
+    n: Optional[int] = field(default=None)
+    best_of: Optional[int] = field(default=None)
+    use_beam_search: Optional[bool] = field(default=None)
+    presence_penalty: Optional[float] = field(default=None)
+    frequency_penalty: Optional[float] = field(default=None)
+    repetition_penalty: Optional[float] = field(default=None)
+    temperature: Optional[float] = field(default=None)
+    top_p: Optional[float] = field(default=None)
+    top_k: Optional[int] = field(default=None)
+    max_tokens: Optional[int] = field(default=None)
+    ignore_eos: Optional[bool] = field(default=None)
+    stream: Optional[bool] = field(default=None)
+
+    def to_dict(self):
+        output = {}
+        for k in self.__dict__:
+            if self.__dict__[k] is not None:
+                output[k] = self.__dict__[k]
+        return output
+
+
 class AysncRequestSender:
-    def __init__(self, backend: str, base_url: str, api_key: str, ep_models: str, ep_chat: str, ep_completion: str):
+    def __init__(self, backend: str, base_url: str, api_key: str, ep_models: str, ep_chat: str, ep_completion: str, sys_prompt: Optional[str]):
         self.backend = backend
         self.base_url = base_url
         self.api_key = api_key
@@ -42,6 +70,7 @@ class AysncRequestSender:
         self.responses = []
         self.headers = OrderedDict({"Content-Type": "application/json"})
         self.headers["Authorization"] = f"Bearer {self.api_key}"
+        self.sys_prompt = sys_prompt
 
     def check_health(self, retry: int) -> bool:
         ret = False
@@ -65,12 +94,8 @@ class AysncRequestSender:
     def get_response(self) -> List[Response]:
         return self.responses
 
-    async def post_batch_requests_async(self,
-        batch_size: int, requests: List[Tuple[str, int, int]],
-        model: str, n: int, best_of: int, beam_search: bool, do_sample: bool, presence_penalty: float, frequency_penalty: float, repetition_penalty: float,
-        temperature: float, top_p: float, top_k: int, stream: bool, eos_token_id: int,
-    ):
-        logger.info(f"post requests({len(requests)}), concurrency: {batch_size}, model: {model}, url: {self.base_url + self.ep_completion}")
+    async def post_batch_requests_async(self, batch_size: int, requests: List[Tuple[str, int, int]], parameters: InputParameter, chat_completions: bool):
+        logger.info(f"post requests({len(requests)}), concurrency: {batch_size}, model: {parameters.model}, url: {self.base_url + self.ep_completion}")
         self.responses = []
         tasks: List[asyncio.Task] = []
         progress_bar = async_tqdm(total=len(requests), desc="Processing Requests", smoothing=0.0)
@@ -82,9 +107,7 @@ class AysncRequestSender:
             tasks.append(asyncio.create_task(self._update_sem(semaphore, 1, 60, batch_size - 1, len(requests))))
         for request in requests:
             prompt, prompt_len, output_len = request
-            task = asyncio.create_task(self._post_one_request(
-                semaphore, model, prompt, prompt_len, output_len, n, best_of, beam_search, do_sample, presence_penalty, frequency_penalty, repetition_penalty, temperature, top_p, top_k, stream, eos_token_id
-            ))
+            task = asyncio.create_task(self._post_one_request(semaphore, prompt, prompt_len, output_len, parameters, chat_completions))
             tasks.append(task)
             task.add_done_callback(lambda _: progress_bar.update())
         await asyncio.gather(*tasks)
@@ -102,10 +125,7 @@ class AysncRequestSender:
             for _ in range(p):
                 sem.release()
 
-    async def _post_one_request(self, semaphore: asyncio.Semaphore, model: str, prompt: str, prompt_len: int, output_len: int,
-        n: int, best_of: int, beam_search: bool, do_sample: bool, presence_penalty: float, frequency_penalty: float, repetition_penalty: float,
-        temperature: float, top_p: float, top_k: int, stream: bool, eos_token_id: int,
-    ):
+    async def _post_one_request(self, semaphore: asyncio.Semaphore, prompt: str, prompt_len: int, output_len: int, parameters: InputParameter, chat_completions: bool):
         # prepare header, payload and params
         timeout = aiohttp.ClientTimeout(total=3600 * 3)
         retry = 1
@@ -113,37 +133,15 @@ class AysncRequestSender:
         ttft = None
         tpot = None
         output = ""
-        if self.backend == "vllm":
-            payload = {
-                "model": model,
-                "prompt": prompt,
-                "n": n,
-                "best_of": best_of,
-                "use_beam_search": beam_search,
-                "presence_penalty": presence_penalty,
-                "frequency_penalty": frequency_penalty,
-                "repetition_penalty": repetition_penalty,
-                "temperature": temperature,
-                "top_p": top_p,
-                "top_k": top_k if do_sample else -1,
-                "max_tokens": output_len,
-                "ignore_eos": True,
-                "stream": stream,
-            }
-        elif self.backend == "novita":
-            payload = {
-                "model": model,
-                "prompt": prompt,
-                "n": n,
-                "presence_penalty": presence_penalty,
-                "frequency_penalty": frequency_penalty,
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": output_len,
-                "stream": stream,
-            }
+        if chat_completions:
+            parameters.messages = []
+            if self.sys_prompt:
+                parameters.messages.append({"role": "system", "content": self.sys_promt})
+            parameters.messages.append({"role": "user", "content": prompt})
         else:
-            raise ValueError(f"Unknown backend: {self.backend}")
+            parameters.prompt = prompt
+        parameters.max_tokens = output_len
+        payload = parameters.to_dict()
         # post now
         async with semaphore:
             request_start_time = time.perf_counter()
@@ -176,7 +174,7 @@ class AysncRequestSender:
                                         output += obj["choices"][0]["text"]
                         break
                     except json.decoder.JSONDecodeError as err:
-                        logger.warning(f"Failed to load json string: {data}, error: {err}")
+                        logger.warning(f"Failed to load json string: {chunk}, error: {err}")
                         break
                     except Exception as err:
                         logger.warning(f"Failed to handle streaming chunk: {chunk}, error: {err}")
@@ -194,7 +192,8 @@ class AysncRequestSender:
             decode_latency = request_end_time - first_token_time
             if output_len > 1:
                 tpot = decode_latency / (output_len - 1)
-            # logger.info(f"Generated text from server: {output}")
+            if PRINT_GENERATE_TEXT:
+                logger.info(f"Generated text from server: {output}")
             self.responses.append(Response(prompt=prompt, generated=output, prompt_len=prompt_len, output_len=output_len, latency=request_latency, decode_latency=decode_latency, ttft=ttft, tpot=tpot))
             return True
 
@@ -205,7 +204,7 @@ class AysncRequestSender:
                 json.dump(record, f)
                 f.write("\n")
 
-    def dump_response_stats(self, tokenizer, stream, gpus, duration, log_file):
+    def dump_response_stats(self, tokenizer, stream, duration, log_file):
         if log_file is not None and log_file != "":
             self.save_response(log_file)
 
@@ -235,10 +234,8 @@ class AysncRequestSender:
         })
         result_data["total_time"] = round(duration, 2)
         result_data["*tokens_per_second"] = int(total_tokens / duration)
-        #result_data["*tokens_per_second_per_gpu"] = int(total_tokens / gpus / duration)
         result_data["prompt_tokens_per_second"] = int(total_prompt_tokens / duration)
         result_data["*output_tokens_per_second"] = int(total_generate_tokens / duration)
-        #result_data["*output_tokens_per_second_per_gpu"] = int(total_generate_tokens / gpus / duration)
         result_data["requests_per_second"] = round(num_responses / duration, 2)
 
         # Compute the latency statistics.
