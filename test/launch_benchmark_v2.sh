@@ -20,6 +20,7 @@ BM_NUM_BENCHMARK=128
 BM_FIXED_INPUT_LEN=1024
 BM_FIXED_OUTPUT_LEN=1024
 BM_MAX_CONCURRENCY=64
+BM_CHAT=0
 BM_DRY_RUN=
 
 function usage() {
@@ -31,6 +32,7 @@ function usage() {
     LOG INFO "  --backend  The backend: ${BM_PRESET_BACKEND[@]}"
     LOG INFO "  --base-url The LLM server URL"
     LOG INFO "  --api-key (optional) The api key used to call commercial service"
+    LOG INFO "  --chat (optional) If set, call LLM chat-completions API for testing"
     LOG INFO "  --num-requests (optinal) The total requests send to server for benchmark, default: $BM_NUM_BENCHMARK"
     LOG INFO "  --input-len (optional) The fixed input tokens for every request, default: $BM_FIXED_INPUT_LEN"
     LOG INFO "  --output-len (optional) The fixed output tokens the LLM service should return for every request, default: $BM_FIXED_OUTPUT_LEN"
@@ -73,6 +75,9 @@ function run() {
     fi
     args="$args --model $BM_MODEL_NAME --num-warmup-requests $BM_NUM_WARMUP --num-benchmark-requests $BM_NUM_BENCHMARK --max-concurrent-requests $BM_MAX_CONCURRENCY --stream "
     args="$args --sampling-policy fixed --fixed_prompt_len $BM_FIXED_INPUT_LEN --fixed_output_len $BM_FIXED_OUTPUT_LEN"
+    if [ $BM_CHAT -eq 1 ]; then
+        args="$args --api-kind chat"
+    fi
     args="$args --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --log-file benchmark_${BM_BACKEND}.log $BM_DRY_RUN"
 
     if [ x"$BM_DRY_RUN" = x"--dry-run" ]; then
@@ -130,6 +135,10 @@ function main() {
         shift
         BM_FIXED_INPUT_LEN=$1
         shift
+        ;;
+    --chat)
+        shift
+        BM_CHAT=1
         ;;
     --output-len)
         shift

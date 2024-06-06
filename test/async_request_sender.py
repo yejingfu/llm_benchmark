@@ -95,7 +95,8 @@ class AysncRequestSender:
         return self.responses
 
     async def post_batch_requests_async(self, batch_size: int, requests: List[Tuple[str, int, int]], parameters: InputParameter, chat_completions: bool):
-        logger.info(f"post requests({len(requests)}), concurrency: {batch_size}, model: {parameters.model}, url: {self.base_url + self.ep_completion}")
+        url = self.base_url + (self.ep_chat if chat_completions else self.ep_completion)
+        logger.info(f"post requests({len(requests)}), concurrency: {batch_size}, model: {parameters.model}, url: {url}")
         self.responses = []
         tasks: List[asyncio.Task] = []
         progress_bar = async_tqdm(total=len(requests), desc="Processing Requests", smoothing=0.0)
@@ -136,12 +137,13 @@ class AysncRequestSender:
         if chat_completions:
             parameters.messages = []
             if self.sys_prompt:
-                parameters.messages.append({"role": "system", "content": self.sys_promt})
+                parameters.messages.append({"role": "system", "content": self.sys_prompt})
             parameters.messages.append({"role": "user", "content": prompt})
         else:
             parameters.prompt = prompt
         parameters.max_tokens = output_len
         payload = parameters.to_dict()
+        url = self.base_url + (self.ep_chat if chat_completions else self.ep_completion)
         # post now
         async with semaphore:
             request_start_time = time.perf_counter()
@@ -152,9 +154,9 @@ class AysncRequestSender:
                     #logger.info(f"try: {i}")
                     try:
                         request_end_time = 0
-                        async with session.post(self.base_url + self.ep_completion, headers = self.headers, json = payload) as res:
+                        async with session.post(url, headers = self.headers, json = payload) as res:
                             if res.status != 200:
-                                logger.error(f"Failed to send request: {self.base_url + self.ep_completion}, status: {res.status}")
+                                logger.error(f"Failed to send request: {url}, status: {res.status}")
                                 return False
                             async for chunk_bytes in res.content:
                                 chunk_bytes = chunk_bytes.strip()
