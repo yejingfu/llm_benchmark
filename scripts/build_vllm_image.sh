@@ -16,6 +16,7 @@ MODEL_DIR=
 MODEL_NAME=
 TEST_DATA_DIR=
 OPEN_WEBUI_DIR=
+ENABLE_OWEBUI=1
 BUILD_DEV=prod
 TAG=
 
@@ -26,8 +27,8 @@ function usage() {
     LOG INFO "  --model-dir The path to model folder, if it's set, the model would be built into image"
     LOG INFO "  --model-name The model name, if it's set, parse from model path"
     LOG INFO "  --test-data-dir The path to the dataset which is used for benmark testing"
-    LOG INFO "  --open-webui-dir The path to the source code of Open-WebUI, you can downlaod it from https://github.com/open-webui/open-webui"
-    LOG INFO "  --dev Build the image form development, including tests, otherwise build image for production"
+    LOG INFO "  --open-webui-dir(optinal) The path to the source code of Open-WebUI, if not set, the owebui is not built into image. You can downlaod it from https://github.com/open-webui/open-webui"
+    LOG INFO "  --dev(optional) Build the image form development, including tests, otherwise build image for production"
     LOG INFO "  --tag  The docker image tag we want to build from vLLM source code"
     exit
 }
@@ -53,8 +54,12 @@ function build() {
         fi
     popd
 
+    local docker_file=Dockerfile_with_owebui.ppio
+
     if [[ x"$OPEN_WEBUI_DIR" = x"" ]] || [[ ! -d "$OPEN_WEBUI_DIR" ]]; then
-        LOG ERR "The Open-WebUI folder is null or invalid: $OPEN_WEBUI_DIR"
+        LOG WARN "The Open-WebUI folder is null or invalid: $OPEN_WEBUI_DIR, disable it"
+        ENABLE_OWEBUI=0
+        docker_file=Dockerfile.ppio
     fi
 
     arr=(${TAG//:/ })
@@ -69,7 +74,9 @@ function build() {
 
     LOG INFO "Now build image $TAG from vLLM source: $VLLM_SRC_DIR"
     pushd $VLLM_SRC_DIR
-    cp -rf $OPEN_WEBUI_DIR open-webui
+    if [ $ENABLE_OWEBUI -eq 1 ]; then
+        cp -rf $OPEN_WEBUI_DIR open-webui
+    fi
     cp -rf $CUTLASS_DIR cutlass
     if [[ ! x"$MODEL_DIR" = x"" ]] && [[ ! x"$MODEL_NAME" = x"" ]]; then
         if [ ! -d "$MODEL_DIR" ]; then
@@ -90,8 +97,10 @@ function build() {
         cp $CUR_DIR/../test/dataset_sampler.py benchmark_ppio/test/
         cp $CUR_DIR/../test/llm_api_demo.py benchmark_ppio/test/
     fi
-    DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_NAME=$MODEL_NAME --build-arg ENVIRONMENT=$BUILD_DEV -t $TAG -f Dockerfile.ppio .
-    rm -rf open-webui
+    DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_NAME=$MODEL_NAME --build-arg ENVIRONMENT=$BUILD_DEV -t $TAG -f $docker_file .
+    if [ -d open-webui ];then
+        rm -rf open-webui
+    fi
     rm -rf $MODEL_NAME
     rm -rf cutlass
     rm -rf benchmark_ppio

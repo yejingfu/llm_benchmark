@@ -188,7 +188,7 @@ class AysncRequestSender:
                         logger.warning(f"Failed to load json string: {chunk}, error: {err}")
                         break
                     except Exception as err:
-                        logger.warning(f"Failed to handle streaming chunk: {chunk}, error: {err}")
+                        logger.warning(f"Failed to handle streaming chunk: {res.status}, error: {err}")
                         break
                     except aiohttp.ClientError as e:
                         if i < retry - 1:
@@ -215,7 +215,7 @@ class AysncRequestSender:
                 json.dump(record, f)
                 f.write("\n")
 
-    def dump_response_stats(self, tokenizer, stream, duration, log_file):
+    def dump_response_stats(self, tokenizer, stream, duration, print_dismatch, log_file):
         if log_file is not None and log_file != "":
             self.save_response(log_file)
 
@@ -232,7 +232,8 @@ class AysncRequestSender:
                 continue
             #logger.info(f"output len: {generated_len}, {response.output_len}")
             if abs(generated_len - response.output_len) > 10:
-                logger.warning(f"expect generated {response.output_len} tokens, but got {len(generated_tokens)}.")
+                if print_dismatch:
+                    logger.warning(f"expect generated {response.output_len} tokens, but got {len(generated_tokens)}.")
                 response.tpot = round(response.decode_latency / generated_len, 2)
 
         total_prompt_tokens = np.sum([response.prompt_len for response in self.responses])
@@ -242,6 +243,7 @@ class AysncRequestSender:
         result_data = OrderedDict({
             "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             "num_requests": num_responses,
+            "duration": duration,
         })
         result_data["total_time"] = round(duration, 2)
         result_data["*tokens_per_second"] = int(total_tokens / duration)
@@ -305,7 +307,7 @@ class AysncRequestSender:
                 new_data[k] = v
 
         print(f"============ Dump responses stats ==========================")
-        print(f"TTFT(avg, p90): {result_data['*avg_TTFT']}, {result_data['TTFT_P90']}, out throughput: {1.0 / result_data['*avg_TPOT']: .1f}, total throughput(in, out): {result_data['prompt_tokens_per_second']}, {result_data['*output_tokens_per_second']}")
+        print(f"TTFT(avg, p90): {result_data['*avg_TTFT']:0.2f}, {result_data['TTFT_P90']:0.2f}, avg TPOT: {result_data['*avg_TPOT']: .3f}, throughput(in, out): {result_data['prompt_tokens_per_second']}, {result_data['*output_tokens_per_second']}")
         print(f"Details:")
         max_key_length = max(len(str(k)) for k in new_data.keys())
         for key, value in new_data.items():

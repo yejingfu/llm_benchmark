@@ -158,7 +158,7 @@ def main(args: argparse.Namespace):
         asyncio.run(sender.post_batch_requests_async(args.max_concurrent_requests, input_requests, parameters, args.api_kind == "chat"))
         end_time = time.perf_counter()
         if phase == "Benchmark":
-            sender.dump_response_stats(tokenizer, args.stream, end_time - start_time, args.log_file)
+            sender.dump_response_stats(tokenizer, args.stream, end_time - start_time, args.warn_dismatch_output_len, args.log_file)
 
 def simple_verify_args(args):
     assert not args.use_beam_search, "do not support benchmark beam search now."
@@ -226,7 +226,6 @@ if __name__ == "__main__":
     parser.add_argument("--log-file", type=str, default="", help="file to save log information")
     parser.add_argument("--dry-run", action="store_true", help="Don't run the benchmark really, only print some message for debugging")
     args = parser.parse_args()
-
     simple_verify_args(args)
     main(args)
 

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+LOG_SUPPRESS_WARN=0
+
 LOG() {
     if [ x"$1" = x"INFO" ]; then
         shift
@@ -10,7 +12,9 @@ LOG() {
         exit
     elif [ x"$1" = x"WARN" ]; then
         shift
-        echo -e "\033[1;32m[WARNING] $@\033[0m"
+        if [ $LOG_SUPPRESS_WARN -eq 0 ]; then
+            echo -e "\033[1;32m[WARNING] $@\033[0m"
+        fi
     else
         echo "$@"
     fi

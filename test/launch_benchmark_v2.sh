@@ -21,6 +21,7 @@ BM_FIXED_INPUT_LEN=1024
 BM_FIXED_OUTPUT_LEN=1024
 BM_MAX_CONCURRENCY=64
 BM_CHAT=0
+BM_DISABLE_WARN=0
 BM_DRY_RUN=
 
 function usage() {
@@ -36,6 +37,7 @@ function usage() {
     LOG INFO "  --num-requests (optinal) The total requests send to server for benchmark, default: $BM_NUM_BENCHMARK"
     LOG INFO "  --input-len (optional) The fixed input tokens for every request, default: $BM_FIXED_INPUT_LEN"
     LOG INFO "  --output-len (optional) The fixed output tokens the LLM service should return for every request, default: $BM_FIXED_OUTPUT_LEN"
+    LOG INFO "  --disable-warn (optional) Supress the warning message if set"
     exit
 }
 
@@ -83,6 +85,9 @@ function run() {
     fi
     args="$args --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --log-file benchmark_${BM_BACKEND}.log $extra_args"
 
+    if [ $BM_DISABLE_WARN -eq 0 ]; then
+        args="$args --warn-dismatch-output-len"
+    fi
     if [ x"$BM_DRY_RUN" = x"--dry-run" ]; then
         LOG INFO "[RUN]: python $CUR_DIR/benchmark_client.py $args"
     fi
@@ -139,14 +144,23 @@ function main() {
         BM_FIXED_INPUT_LEN=$1
         shift
         ;;
-    --chat)
-        shift
-        BM_CHAT=1
-        ;;
     --output-len)
         shift
         BM_FIXED_OUTPUT_LEN=$1
         shift
+        ;;
+    --parallel)
+        shift
+        BM_MAX_CONCURRENCY=$1
+        shift
+        ;;
+    --chat)
+        shift
+        BM_CHAT=1
+        ;;
+    --disable-warn)
+        shift
+        BM_DISABLE_WARN=1
         ;;
     *)
         usage
