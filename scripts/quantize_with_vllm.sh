@@ -5,11 +5,13 @@ PRG_NAME=$(basename "${BASH_SOURCE[0]}")
 CUR_DIR=$(cd `dirname $0`;pwd)
 source $CUR_DIR/base.sh
 
-VLLM_IMAGE=ppinfer/vllm-openai:v0.4.2
+#VLLM_IMAGE=ppinfer/vllm-openai:v0.4.2
+VLLM_IMAGE=ppinfer_vllm_llama3_8b:0.5.0
 DOCKER_NAME="vllm_quantization"
 ACT_SCHEME="static"
 #ACT_SCHEME="dynamic"
 MAX_SEQ_LEN=4096
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
@@ -30,7 +32,7 @@ function do_quantize() {
     LOG INFO "Do quanization: $hf_model, $kind"
     LOG INFO "datasets: $datasets, vllm: $vllm_dir, output: $output"
     local tmpscript=tmp$RANDOM.sh
-    opts="-d --gpus all --privileged --ipc=host --net=host --ulimit stack=67108864 --ulimit memlock=-1 -e CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 --name $DOCKER_NAME"
+    opts="-d --gpus all --privileged --ipc=host --net=host --ulimit stack=67108864 --ulimit memlock=-1 -e CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES --name $DOCKER_NAME"
     opts="$opts -v $hf_model:$hf_model -v $datasets:/root/.cache/huggingface/datasets -v $CUR_DIR:/tmp_scripts"
     local message="Succeed:"
     if [ "$kind" = "weight" ]; then
