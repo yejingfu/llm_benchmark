@@ -78,6 +78,8 @@ function build() {
         cp -rf $OPEN_WEBUI_DIR open-webui
     fi
     cp -rf $CUTLASS_DIR cutlass
+    cp $CUR_DIR/vllm/CMakeLists.txt ./
+    cp $CUR_DIR/vllm/start_webui_and_vllm.sh ./
     if [[ ! x"$MODEL_DIR" = x"" ]] && [[ ! x"$MODEL_NAME" = x"" ]]; then
         if [ ! -d "$MODEL_DIR" ]; then
             LOG ERR "The model folder does not exist: $MODEL_DIR"
@@ -97,7 +99,7 @@ function build() {
         cp $CUR_DIR/../test/dataset_sampler.py benchmark_ppio/test/
         cp $CUR_DIR/../test/llm_api_demo.py benchmark_ppio/test/
     fi
-    DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_NAME=$MODEL_NAME --build-arg ENVIRONMENT=$BUILD_DEV -t $TAG -f $docker_file .
+    DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_NAME=$MODEL_NAME --build-arg ENVIRONMENT=$BUILD_DEV -t $TAG -f $CUR_DIR/vllm/$docker_file .
     if [ -d open-webui ];then
         rm -rf open-webui
     fi
