@@ -21,6 +21,7 @@ BM_FIXED_INPUT_LEN=1024
 BM_FIXED_OUTPUT_LEN=1024
 BM_MAX_CONCURRENCY=64
 BM_CHAT=0
+BM_ADD_SYS_PROMPT=0
 BM_DISABLE_WARN=0
 BM_DRY_RUN=
 
@@ -72,6 +73,9 @@ function run() {
     fi
     if [ x"$BM_DATASET_PATH" = x"" ]; then
         LOG ERR "The test dataset path is not set"
+    fi
+    if [[ $BM_CHAT -eq 1 ]] && [[ $BM_ADD_SYS_PROMPT -eq 1 ]]; then
+        LOG ERR "The chat api cannot support adding system prompt"
     fi
 
     local args="--backend $BM_BACKEND --base-url $BM_BASE_URL --endpoint-models ${path_prefix}/models --endpoint-chat ${path_prefix}/chat/completions --endpoint-completion ${path_prefix}/completions"
@@ -157,6 +161,10 @@ function main() {
     --chat)
         shift
         BM_CHAT=1
+        ;;
+    --add-sys-prompt)
+        shift
+        BM_ADD_SYS_PROMPT=1
         ;;
     --disable-warn)
         shift
