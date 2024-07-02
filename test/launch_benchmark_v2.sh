@@ -17,6 +17,7 @@ BM_DATASET_PATH=
 
 BM_NUM_WARMUP=2
 BM_NUM_BENCHMARK=128
+BM_SAMPLE_POLICY=fixed
 BM_FIXED_INPUT_LEN=1024
 BM_FIXED_OUTPUT_LEN=1024
 BM_MAX_CONCURRENCY=64
@@ -24,6 +25,8 @@ BM_CHAT=0
 BM_ADD_SYS_PROMPT=0
 BM_DISABLE_WARN=0
 BM_DRY_RUN=
+
+SAMPLE_POLICIES=("fixed" "nature" "normal")
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
@@ -35,7 +38,8 @@ function usage() {
     LOG INFO "  --base-url The LLM server URL"
     LOG INFO "  --api-key (optional) The api key used to call commercial service"
     LOG INFO "  --chat (optional) If set, call LLM chat-completions API for testing"
-    LOG INFO "  --num-requests (optinal) The total requests send to server for benchmark, default: $BM_NUM_BENCHMARK"
+    LOG INFO "  --num-requests (optional) The total requests send to server for benchmark, default: $BM_NUM_BENCHMARK"
+    LOG INFO "  --sample-policy (optional) Can be 'fixed, nature, normal'"
     LOG INFO "  --input-len (optional) The fixed input tokens for every request, default: $BM_FIXED_INPUT_LEN"
     LOG INFO "  --output-len (optional) The fixed output tokens the LLM service should return for every request, default: $BM_FIXED_OUTPUT_LEN"
     LOG INFO "  --disable-warn (optional) Supress the warning message if set"
@@ -77,13 +81,28 @@ function run() {
     if [[ $BM_CHAT -eq 1 ]] && [[ $BM_ADD_SYS_PROMPT -eq 1 ]]; then
         LOG ERR "The chat api cannot support adding system prompt"
     fi
+    if [[ ! ${SAMPLE_POLICIES[@]} =~ $BM_SAMPLE_POLICY ]]; then
+        LOG ERR "The --sample-policy should be one of ${SAMPLE_POLICIES[@]}"
+    fi
 
     local args="--backend $BM_BACKEND --base-url $BM_BASE_URL --endpoint-models ${path_prefix}/models --endpoint-chat ${path_prefix}/chat/completions --endpoint-completion ${path_prefix}/completions"
     if [ x"$BM_API_KEY" != x"" ]; then
         args="$args --api-key $BM_API_KEY"
     fi
     args="$args --model $BM_MODEL_NAME --num-warmup-requests $BM_NUM_WARMUP --num-benchmark-requests $BM_NUM_BENCHMARK --max-concurrent-requests $BM_MAX_CONCURRENCY --stream "
-    args="$args --sampling-policy fixed --fixed_prompt_len $BM_FIXED_INPUT_LEN --fixed_output_len $BM_FIXED_OUTPUT_LEN"
+    args="$args --sampling-policy $BM_SAMPLE_POLICY"
+    if [ "$BM_SAMPLE_POLICY" = "fixed" ]; then
+        args="$args --fixed_prompt_len $BM_FIXED_INPUT_LEN --fixed_output_len $BM_FIXED_OUTPUT_LEN"
+    elif [ "$BM_SAMPLE_POLICY" = "nature" ]; then
+        args="$args --max_prompt_len $BM_FIXED_INPUT_LEN --max_prompt_output_len $BM_FIXED_OUTPUT_LEN"
+    elif [ "$BM_SAMPLE_POLICY" = "normal" ]; then
+        local max_seq_len=$BM_FIXED_INPUT_LEN
+        if [ $BM_FIXED_INPUT_LEN -lt $BM_FIXED_OUTPUT_LEN ]; then
+            max_seq_len=$BM_FIXED_OUTPUT_LEN
+        fi
+        args="$args --prompt_len_mean $BM_FIXED_INPUT_LEN --output_len_mean $BM_FIXED_OUTPUT_LEN --max_seq_len $(expr $max_seq_len \* 2) "
+    fi
+
     if [ $BM_CHAT -eq 1 ]; then
         args="$args --api-kind chat"
     fi
@@ -141,6 +160,11 @@ function main() {
     --num-requests)
         shift
         BM_NUM_BENCHMARK=$1
+        shift
+        ;;
+    --sample-policy)
+        shift
+        BM_SAMPLE_POLICY=$1
         shift
         ;;
     --input-len)

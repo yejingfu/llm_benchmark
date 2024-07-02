@@ -156,7 +156,7 @@ class AysncRequestSender:
                         request_end_time = 0
                         async with session.post(url, headers = self.headers, json = payload) as res:
                             if res.status != 200:
-                                logger.error(f"Failed to send request: {url}, status: {res.status}")
+                                logger.error(f"Failed to send request: {url}, status: {res.status}, {res.text}")
                                 return False
                             async for chunk_bytes in res.content:
                                 chunk_bytes = chunk_bytes.strip()

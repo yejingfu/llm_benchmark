@@ -138,6 +138,7 @@ class DatasetSampler:
             prompt_len_std = kwargs["prompt_len_std"]
             output_len_mean = kwargs["output_len_mean"]
             output_len_std = kwargs["output_len_std"]
+            logger.info(f"sampling with normal policy, prompt_len: {prompt_len_mean}, {prompt_len_std}, output_len: {output_len_mean}, {output_len_std}, max_seq_len: {max_seq_len}")
             weights = [sum([len(msg) for msg in sample]) * len(self.samples) + idx for idx, sample in enumerate(self.samples)]
             sorted_indices = np.argsort(weights)
             sorted_data = [self.samples[i] for i in sorted_indices]
