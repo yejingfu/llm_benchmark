@@ -139,6 +139,7 @@ RUN npm run build
 FROM vllm-base AS vllm-openai
 
 ARG MODEL_NAME=llama3-8b
+ARG MODEL_DIR=/ppio_models/llama3-8b
 # it can be: dev, prod
 ARG ENVIRONMENT=prod
 
@@ -164,6 +165,7 @@ ENV HF_ENDPOINT=https://hf-mirror.com \
     HF_HOME=/root/.cache/huggingface \
     RUN_DEFAULT_MODEL=1 \
     MODEL_NAME=${MODEL_NAME} \
+    MODEL_DIR=${MODEL_DIR} \
     FP8_SUPPORT=0 \
     VLLM_TP=8 \
     VLLM_PP=1 \
@@ -178,7 +180,7 @@ COPY open-webui/backend .
 RUN pip3 install uv && \
     uv pip install --system -r requirements.txt --no-cache-dir
 
-COPY ${MODEL_NAME} /root/.cache/huggingface/hub/${MODEL_NAME}
+COPY ppio_models /
 COPY benchmark_ppio /vllm-workspace/benchmark_ppio
 COPY start_webui_and_vllm.sh /vllm-workspace/
 

@@ -25,7 +25,7 @@ if [ x"$FP8_SUPPORT" = x"1" ]; then
     FP8_ARGS="--quantization fp8"
 fi
 VLLM_PORT=$(expr $OW_PORT \+ 1)
-args=" --host $OW_HOST --port $VLLM_PORT --model /root/.cache/huggingface/hub/$MODEL_NAME --tensor-parallel-size $VLLM_TP --pipeline-parallel-size $VLLM_PP  --use-v2-block-manager --block-size 32 --swap-space 16 --gpu-memory-utilization 0.9 --dtype auto --served-model-name $MODEL_NAME --max-num-seqs $VLLM_MAX_NUM_SEQS --max-model-len $VLLM_MAX_MODEL_LEN --max-num-batched-tokens $VLLM_MAX_MODEL_LEN --max-seq-len-to-capture $VLLM_MAX_MODEL_LEN $FP8_ARGS"
+args=" --host $OW_HOST --port $VLLM_PORT --model /root/.cache/huggingface/hub/$MODEL_DIR --tensor-parallel-size $VLLM_TP --pipeline-parallel-size $VLLM_PP  --use-v2-block-manager --block-size 32 --swap-space 16 --gpu-memory-utilization 0.9 --dtype auto --served-model-name $MODEL_NAME --max-num-seqs $VLLM_MAX_NUM_SEQS --max-model-len $VLLM_MAX_MODEL_LEN --max-num-batched-tokens $VLLM_MAX_MODEL_LEN --max-seq-len-to-capture $VLLM_MAX_MODEL_LEN $FP8_ARGS"
 ENV="${ENV:-prod}"
 if [ x"$ENV" = x"prod" ]; then
     ## --disable-log-stats

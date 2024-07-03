@@ -12,24 +12,24 @@ source $CUR_DIR/base.sh
 
 VLLM_SRC_DIR=
 CUTLASS_DIR=
-MODEL_DIR=
-MODEL_NAME=
+MODEL_DIR=()
+MODEL_FILE_NAME=
+MODEL_NAME=EMPTY
 TEST_DATA_DIR=
 OPEN_WEBUI_DIR=
-ENABLE_OWEBUI=1
 BUILD_DEV=prod
 TAG=
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
+    LOG INFO "  --tag  The docker image tag we want to build from vLLM source code"
     LOG INFO "  --vllm-src  The source code path to the vLLM, ensure its right revision is checked out"
-    LOG INFO "  --cutlass-src  The source code path to the cutlass, please manually fetch it in advanced from https://github.com/nvidia/cutlass.git"
-    LOG INFO "  --model-dir The path to model folder, if it's set, the model would be built into image"
-    LOG INFO "  --model-name The model name, if it's set, parse from model path"
-    LOG INFO "  --test-data-dir The path to the dataset which is used for benmark testing"
+    LOG INFO "  --cutlass-src(optional)  The source code path to the cutlass, please manually fetch it in advanced from https://github.com/nvidia/cutlass.git"
+    LOG INFO "  --model-dir(optional) The path to model folder, if it's set, the model would be built into image"
+    LOG INFO "  --model-name(optional) The model name, if it's set, parse from model path"
+    LOG INFO "  --test-data-dir(optional) The path to the dataset which is used for benmark testing"
     LOG INFO "  --open-webui-dir(optinal) The path to the source code of Open-WebUI, if not set, the owebui is not built into image. You can downlaod it from https://github.com/open-webui/open-webui"
     LOG INFO "  --dev(optional) Build the image form development, including tests, otherwise build image for production"
-    LOG INFO "  --tag  The docker image tag we want to build from vLLM source code"
     exit
 }
 
@@ -40,27 +40,9 @@ function build() {
     if [ x"$TAG" = x"" ]; then
         LOG ERR "The tag is null, please set by --tag"
     fi
-    if [ x"$CUTLASS_DIR" = x"" ]; then
-        LOG ERR "The cutlass source folder is null, please set by --cutlass-src"
-    fi
-    if [ ! -d "$CUTLASS_DIR" ]; then
-        LOG ERR "The cutlass source folder does not exist: $CUTLASS_DIR"
-    fi
-    pushd $CUTLASS_DIR
-        ret=`git log -1 --oneline | grep 7d49e6c7`
-        echo "==== $ret"
-        if [ x"$ret" == x"" ]; then
-            LOG ERR "Incorrect cutlass source commit, please checkout 7d49e6c7"
-        fi
-    popd
-
-    local docker_file=Dockerfile_with_owebui.ppio
-
-    if [[ x"$OPEN_WEBUI_DIR" = x"" ]] || [[ ! -d "$OPEN_WEBUI_DIR" ]]; then
-        LOG WARN "The Open-WebUI folder is null or invalid: $OPEN_WEBUI_DIR, disable it"
-        ENABLE_OWEBUI=0
-        docker_file=Dockerfile.ppio
-    fi
+    local docker_file=Dockerfile
+    local use_open_webui=0
+    local use_local_cutlass=0
 
     arr=(${TAG//:/ })
     len=${#arr[@]}
@@ -72,40 +54,83 @@ function build() {
         LOG ERR "The image $TAG already exist, please remove it firstly"
     fi
 
+    if [[ x"$CUTLASS_DIR" != x"" ]] && [[ -d "$CUTLASS_DIR" ]]; then
+        use_local_cutlass=1
+        LOG INFO "Use local cutlass: $CUTLASS_DIR"
+        pushd $CUTLASS_DIR
+            ret=`git log -1 --oneline | grep 7d49e6c7`
+            if [ x"$ret" == x"" ]; then
+                LOG ERR "Incorrect cutlass source commit, please checkout 7d49e6c7"
+            fi
+        popd
+    fi
+
     LOG INFO "Now build image $TAG from vLLM source: $VLLM_SRC_DIR"
     pushd $VLLM_SRC_DIR
-    if [ $ENABLE_OWEBUI -eq 1 ]; then
-        cp -rf $OPEN_WEBUI_DIR open-webui
-    fi
-    cp -rf $CUTLASS_DIR cutlass
-    cp $CUR_DIR/vllm/CMakeLists.txt ./
-    cp $CUR_DIR/vllm/start_webui_and_vllm.sh ./
-    if [[ ! x"$MODEL_DIR" = x"" ]] && [[ ! x"$MODEL_NAME" = x"" ]]; then
-        if [ ! -d "$MODEL_DIR" ]; then
-            LOG ERR "The model folder does not exist: $MODEL_DIR"
+        if [[ x"$OPEN_WEBUI_DIR" != x"" ]] && [[ -d "$OPEN_WEBUI_DIR" ]]; then
+            LOG INFO "Build Open-WebUI into image: $OPEN_WEBUI_DIR"
+            use_open_webui=1
+            docker_file=Dockerfile_with_owebui.ppio
+            cp -rf $OPEN_WEBUI_DIR open-webui
+            cp $CUR_DIR/vllm/start_webui_and_vllm.sh ./
+            cp $CUR_DIR/vllm/$docker_file ./
         fi
-        cp -rf $MODEL_DIR $MODEL_NAME
-    else
-        MODEL_NAME=dummy
-        mkdir $MODEL_NAME
-    fi
-    mkdir -p benchmark_ppio/scripts benchmark_ppio/test
-    if [[ ! x"$TEST_DATA_DIR" = x"" ]] && [[ -d "$TEST_DATA_DIR" ]]; then
-        cp -rf $TEST_DATA_DIR benchmark_ppio/
-        cp $CUR_DIR/base.sh benchmark_ppio/scripts/
-        cp $CUR_DIR/../test/launch_benchmark_v2.sh benchmark_ppio/test/
-        cp $CUR_DIR/../test/async_request_sender.py benchmark_ppio/test/
-        cp $CUR_DIR/../test/benchmark_client.py benchmark_ppio/test/
-        cp $CUR_DIR/../test/dataset_sampler.py benchmark_ppio/test/
-        cp $CUR_DIR/../test/llm_api_demo.py benchmark_ppio/test/
-    fi
-    DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_NAME=$MODEL_NAME --build-arg ENVIRONMENT=$BUILD_DEV -t $TAG -f $CUR_DIR/vllm/$docker_file .
-    if [ -d open-webui ];then
-        rm -rf open-webui
-    fi
-    rm -rf $MODEL_NAME
-    rm -rf cutlass
-    rm -rf benchmark_ppio
+        mkdir ppio_models
+        for path in ${MODEL_DIR[@]}; do
+            if [ ! -d "$path" ]; then
+                LOG ERR "The model folder does not exist: $path"
+            fi
+            if [ x"$MODEL_FILE_NAME" = x"" ]; then
+                MODEL_FILE_NAME="${path##*/}"
+            fi
+            cp -r $v ppio_models/
+        done
+        if [ x"$MODEL_FILE_NAME" != x"" ]; then
+            git am $CUR_DIR/vllm/0001-Bake-model-weight-files-into-docker-image.patch
+        else
+            rm -rf ppio_models
+        fi
+
+        if [[ ! x"$TEST_DATA_DIR" = x"" ]] && [[ -d "$TEST_DATA_DIR" ]]; then
+            mkdir benchmark_ppio
+            mkdir -p benchmark_ppio/scripts benchmark_ppio/test
+            cp -rf $TEST_DATA_DIR benchmark_ppio/
+            cp $CUR_DIR/base.sh benchmark_ppio/scripts/
+            cp $CUR_DIR/../test/launch_benchmark_v2.sh benchmark_ppio/test/
+            cp $CUR_DIR/../test/async_request_sender.py benchmark_ppio/test/
+            cp $CUR_DIR/../test/benchmark_client.py benchmark_ppio/test/
+            cp $CUR_DIR/../test/dataset_sampler.py benchmark_ppio/test/
+            cp $CUR_DIR/../test/llm_api_demo.py benchmark_ppio/test/
+        fi
+        if [ $use_local_cutlass -eq 1 ]; then
+            cp -r $CUTLASS_DIR cutlass
+            git am $CUR_DIR/vllm/0001-Use-local-cutlass-code.patch
+        fi
+        DOCKER_BUILDKIT=1 docker build --build-arg torch_cuda_arch_list="8.9 9.0+PTX" --build-arg MODEL_DIR=MODEL_FILE_NAME --build-arg MODEL_NAME=$MODEL_NAME --build-arg ENVIRONMENT=$BUILD_DEV -t $TAG -f $docker_file .
+        if [ -d ppio_models ]; then
+            rm -rf ppio_models
+        fi
+        if [ -d open-webui ];then
+            rm -rf open-webui
+        fi
+        if [ -d benchmark_ppio ];then
+            rm -rf benchmark_ppio
+        fi
+        if [ -d cutlass ];then
+            rm -rf cutlass
+        fi
+        if [ -f start_webui_and_vllm.sh ]; then
+            rm start_webui_and_vllm.sh
+        fi
+        if [ -f Dockerfile_with_owebui.ppio ]; then
+            rm Dockerfile_with_owebui.ppio
+        fi
+        if [ $use_local_cutlass -eq 1 ]; then
+            git reset --hard HEAD^
+        fi
+        if [ x"$MODEL_FILE_NAME" != x"" ]; then
+            git reset --hard HEAD^
+        fi
     popd
     LOG INFO "Complete to build the vllm image: $TAG"
 }
@@ -131,7 +156,7 @@ function main() {
         ;;
     --model-dir)
         shift
-        MODEL_DIR="$1"
+        MODEL_DIR+=("$1")
         shift
         ;;
     --model-name)
