@@ -307,7 +307,9 @@ class AysncRequestSender:
                 new_data[k] = v
 
         print(f"============ Dump responses stats ==========================")
-        print(f"TTFT(avg, p90): {result_data['*avg_TTFT']:0.2f}, {result_data['TTFT_P90']:0.2f}, avg TPOT: {result_data['*avg_TPOT']: .3f}, throughput(in, out): {result_data['prompt_tokens_per_second']}, {result_data['*output_tokens_per_second']}")
+        print(f"[Latency] E2E(avg, p90): {result_data['avg_latency']:0.2f}, {result_data['latency_P90']:0.2f}")
+        print(f"[Latency] TTFT(avg, p90): {result_data['*avg_TTFT']:0.2f}, {result_data['TTFT_P90']:0.2f}; TPOT(avg, p90): {result_data['*avg_TPOT']: .3f}, {result_data['TPOT_P90']: .3f}")
+        print(f"[Throughput] (input, output): {result_data['prompt_tokens_per_second']}, {result_data['*output_tokens_per_second']}")
         print(f"Details:")
         max_key_length = max(len(str(k)) for k in new_data.keys())
         for key, value in new_data.items():
