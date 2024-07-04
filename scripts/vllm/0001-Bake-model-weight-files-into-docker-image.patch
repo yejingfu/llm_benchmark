@@ -1,21 +1,22 @@
-From d741df37f91a63e11cd987cd6c7549ea2dc74153 Mon Sep 17 00:00:00 2001
+From c1d148013f137455ebac1d728d705dd67e9dea88 Mon Sep 17 00:00:00 2001
 From: linke <linke@pplabs.org>
 Date: Wed, 3 Jul 2024 09:34:49 +0800
 Subject: [PATCH] Bake model weight files into docker image
 
 ---
- Dockerfile | 1 +
- 1 file changed, 1 insertion(+)
+ Dockerfile | 2 ++
+ 1 file changed, 2 insertions(+)
 
 diff --git a/Dockerfile b/Dockerfile
-index eb96bf3c..bcb31b85 100644
+index 72894e7c..0deda1f6 100644
 --- a/Dockerfile
 +++ b/Dockerfile
-@@ -131,6 +131,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
+@@ -151,6 +151,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
      pip install accelerate hf_transfer modelscope
  
  ENV VLLM_USAGE_SOURCE production-docker-image
 +COPY ppio_models /ppio_models
++COPY ppio_test /ppio_test
  
  ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
  #################### OPENAI API SERVER ####################

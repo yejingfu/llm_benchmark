@@ -83,7 +83,7 @@ function build() {
             if [ x"$MODEL_FILE_NAME" = x"" ]; then
                 MODEL_FILE_NAME="${path##*/}"
             fi
-            cp -r $v ppio_models/
+            cp -r $path ppio_models/
         done
         if [ x"$MODEL_FILE_NAME" != x"" ]; then
             git am $CUR_DIR/vllm/0001-Bake-model-weight-files-into-docker-image.patch
@@ -92,15 +92,15 @@ function build() {
         fi
 
         if [[ ! x"$TEST_DATA_DIR" = x"" ]] && [[ -d "$TEST_DATA_DIR" ]]; then
-            mkdir benchmark_ppio
-            mkdir -p benchmark_ppio/scripts benchmark_ppio/test
-            cp -rf $TEST_DATA_DIR benchmark_ppio/
-            cp $CUR_DIR/base.sh benchmark_ppio/scripts/
-            cp $CUR_DIR/../test/launch_benchmark.sh benchmark_ppio/test/
-            cp $CUR_DIR/../test/async_request_sender.py benchmark_ppio/test/
-            cp $CUR_DIR/../test/benchmark_client.py benchmark_ppio/test/
-            cp $CUR_DIR/../test/dataset_sampler.py benchmark_ppio/test/
-            cp $CUR_DIR/../test/llm_api_demo.py benchmark_ppio/test/
+            mkdir ppio_test
+            mkdir -p ppio_test/scripts ppio_test/test
+            cp -rf $TEST_DATA_DIR ppio_test/
+            cp $CUR_DIR/base.sh ppio_test/scripts/
+            cp $CUR_DIR/../test/launch_benchmark.sh ppio_test/test/
+            cp $CUR_DIR/../test/async_request_sender.py ppio_test/test/
+            cp $CUR_DIR/../test/benchmark_client.py ppio_test/test/
+            cp $CUR_DIR/../test/dataset_sampler.py ppio_test/test/
+            cp $CUR_DIR/../test/llm_api_demo.py ppio_test/test/
         fi
         if [ $use_local_cutlass -eq 1 ]; then
             cp -r $CUTLASS_DIR cutlass
@@ -113,8 +113,8 @@ function build() {
         if [ -d open-webui ];then
             rm -rf open-webui
         fi
-        if [ -d benchmark_ppio ];then
-            rm -rf benchmark_ppio
+        if [ -d ppio_test ];then
+            rm -rf ppio_test
         fi
         if [ -d cutlass ];then
             rm -rf cutlass
