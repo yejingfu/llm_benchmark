@@ -96,7 +96,7 @@ function build() {
             mkdir -p benchmark_ppio/scripts benchmark_ppio/test
             cp -rf $TEST_DATA_DIR benchmark_ppio/
             cp $CUR_DIR/base.sh benchmark_ppio/scripts/
-            cp $CUR_DIR/../test/launch_benchmark_v2.sh benchmark_ppio/test/
+            cp $CUR_DIR/../test/launch_benchmark.sh benchmark_ppio/test/
             cp $CUR_DIR/../test/async_request_sender.py benchmark_ppio/test/
             cp $CUR_DIR/../test/benchmark_client.py benchmark_ppio/test/
             cp $CUR_DIR/../test/dataset_sampler.py benchmark_ppio/test/
