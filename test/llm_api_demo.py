@@ -30,10 +30,10 @@ class RequestInput:
     prompt_len: int = 0
     output_len: int = 0
     model: str = ""
-    best_of: int = 1
-    use_beam_search: bool = False
     stream: bool = True
-    ignore_eos: bool = False
+    best_of: Optional[int] = None
+    use_beam_search: Optional[bool] = None
+    ignore_eos: Optional[bool] = None
 
 @dataclass
 class RequestOutput:
@@ -53,8 +53,13 @@ def remove_prefix(text: str, prefix: str) -> str:
 
 def print_chunk_progressly(count: int, prefix: str, data):
     text = prefix.split("\n")[-1]
-    if data["choices"][0]:
-        text += f"{data['choices'][0]['text']}"
+    if "choices" in data:
+        if "text" in data["choices"][0]:
+            text += f"{data['choices'][0]['text']}"
+        elif "message" in data["choices"][0]:
+            text += f"{data['choices'][0]['message']['content']}"
+    elif "text" in data:
+        text += f"{data['text']}"
     if data.get("usage", None) is not None:
         text += f" \n\n{data['usage']}\n\n"
     print('\r' + f"[{count}]: " + text, end="", flush=True)
@@ -62,26 +67,33 @@ def print_chunk_progressly(count: int, prefix: str, data):
     #sys.stdout.flush()
 
 async def async_request_openai_completions(
+    action: str,
     request_input: RequestInput,
+    api_key: Optional[str] = None,
     pbar: Optional[tqdm] = None,
     print_progress: bool = True,
 ) -> RequestOutput:
     api_url = request_input.api_url
-    assert api_url.endswith("v1/completions"), "OpenAI Completions API URL must end with 'v1/completions'."
 
     async with aiohttp.ClientSession(timeout=AIOHTTP_TIMEOUT) as session:
         assert not request_input.use_beam_search
         payload = {
             "model": request_input.model,
-            "prompt": request_input.prompt,
             "temperature": 0.0,
-            "best_of": request_input.best_of,
             "max_tokens": request_input.output_len,
-            "ignore_eos": request_input.ignore_eos,
             "stream": request_input.stream,
         }
-        # headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}"}
+        if request_input.best_of is not None:
+            payload["best_of"] = request_input.best_of
+        if request_input.ignore_eos is not None:
+            payload["ignore_eos"] = request_input.ignore_eos
+        if action == "completions":
+            payload["prompt"] = request_input.prompt
+        elif action == "chat-completions":
+            payload["messages"] = [{"role": "user", "content": request_input.prompt}]
         headers = {"User-Agent": "LLM API Client"}
+        if api_key is not None and api_key != "":
+            headers["Authorization"] = "Bearer " + api_key
 
         output = RequestOutput()
         output.prompt_len = request_input.prompt_len
@@ -107,7 +119,15 @@ async def async_request_openai_completions(
                             data = json.loads(chunk)
                             if print_progress:
                                 print_chunk_progressly(iter, generated_text, data)
-                            if data["choices"][0]["text"]:
+                            text = None
+                            if "choices" in data:
+                                if "text" in data["choices"][0]:
+                                    text = data["choices"][0]["text"]
+                                elif "message" in data["choices"][0]:
+                                    text = data["choices"][0]["message"]["content"]
+                            elif "text" in data:
+                                text = data["text"]
+                            if text is not None:
                                 timestamp = time.perf_counter()
                                 # First token
                                 if ttft == 0.0:
@@ -118,7 +138,7 @@ async def async_request_openai_completions(
                                     output.itl.append(timestamp - most_recent_timestamp)
 
                                 most_recent_timestamp = timestamp
-                                generated_text += data["choices"][0]["text"]
+                                generated_text += text
 
                     output.generated_text = generated_text
                     output.success = True
@@ -206,19 +226,20 @@ def main(args):
                 index += 1
         else:
             print(f"unknown models: {models_str}")
-    elif action == "completions":
+    elif action == "completions" or action == "chat-completions":
         input = RequestInput(
             api_url = url,
             prompt = args.prompt,
             model = args.model_name,
             output_len = args.output_len,
             stream = args.stream,
-            ignore_eos = (args.ignore_eos if args.ignore_eos is not None else False),
+            ignore_eos = args.ignore_eos,
+            best_of = args.best_of,
         )
         print(input)
         print_chunck = True
         start_time = time.time()
-        result = asyncio.run(async_request_openai_completions(input, print_progress = print_chunck))
+        result = asyncio.run(async_request_openai_completions(action, input, print_progress = print_chunck))
         end_time = time.time()
         #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
         print(f"Time elapsed: {end_time - start_time} seconds.")
@@ -235,12 +256,15 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Demonstration about llm openapi.")
     parser.add_argument("--url", type=str, help="The host URL of the llm openapi server.", default="http://localhost:8000")
+    parser.add_argument("--api-key", type=str, help="The secret key to connect server.", default="")
     parser.add_argument("--backend", type=str, help="The backend of the llm openapi server.", default="vllm", choices=["vllm", "trtllm"])
     parser.add_argument("--path", type=str, help=f"The URL path of the llm openapi server. Its values can be: {VLLM_ENDPOINTS}", default="/v1/completions")
     parser.add_argument("--prompt", type=str, help="The prompt for the completion.", default="The quick brown fox jumps over the lazy dog.")
     parser.add_argument("--model-name", type=str, help="The model name for completions.", default="llama3-8b")
     parser.add_argument("--output-len", type=int, help="The maximum length of the output.", default=1024)
-    parser.add_argument("--ignore-eos", action="store_true", help="Force to ouput the maximum length of the output, ignore eos when found.")
+    parser.add_argument("--ignore-eos", action="store_true", help="Force to ouput the maximum length of the output, ignore eos when found.", default=None)
+    parser.add_argument("--best-of", type=int, help="The number of best candicates in the sampling phase")
     parser.add_argument("--stream", action="store_true", help="Whether to stream the output or not.")
+
     args = parser.parse_args()
     main(args)
