@@ -43,6 +43,8 @@ function usage() {
     LOG INFO "  --input-len (optional) The fixed input tokens for every request, default: $BM_FIXED_INPUT_LEN"
     LOG INFO "  --output-len (optional) The fixed output tokens the LLM service should return for every request, default: $BM_FIXED_OUTPUT_LEN"
     LOG INFO "  --disable-warn (optional) Supress the warning message if set"
+    LOG INFO "  --parallel (optional) The num of requests sent in parallel"
+    LOG INFO "  --add-sys-prompt (optional) Prepend system prompt prefix, using to test the prefix caching features"
     exit
 }
 
