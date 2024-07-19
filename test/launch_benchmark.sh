@@ -31,7 +31,7 @@ SAMPLE_POLICIES=("fixed" "nature" "normal")
 function usage() {
     LOG INFO "$PRG_NAME [options]"
     LOG INFO "  --dry-run  Print the command without really execute it"
-    LOG INFO "  --model-name The model name passed to LLM service in API"
+    LOG INFO "  --model-name(optional) The model name passed to LLM service in API, this is optional for some endpoint(like friendli)"
     LOG INFO "  --tokenizer The path to local model folder used for tokenizing prompt or output"
     LOG INFO "  --dataset The path to local dataset used for sampling benchmark requests"
     LOG INFO "  --backend  The backend: ${BM_PRESET_BACKEND[@]}"
@@ -71,9 +71,6 @@ function run() {
     if [ x"$BM_BASE_URL" = x"" ]; then
         LOG ERR "The base-url is not set"
     fi
-    if [ x"$BM_MODEL_NAME" = x"" ]; then
-        LOG ERR "The model-name is not set"
-    fi
     if [ x"$BM_TOKENIZER_PATH" = x"" ]; then
         LOG ERR "The tokenizer path is not set"
     fi
@@ -87,11 +84,16 @@ function run() {
         LOG ERR "The --sample-policy should be one of ${SAMPLE_POLICIES[@]}"
     fi
 
-    local args="--backend $BM_BACKEND --base-url $BM_BASE_URL --endpoint-models ${path_prefix}/models --endpoint-chat ${path_prefix}/chat/completions --endpoint-completion ${path_prefix}/completions"
+    local args="--backend $BM_BACKEND --base-url $BM_BASE_URL --endpoint-chat ${path_prefix}/chat/completions --endpoint-completion ${path_prefix}/completions"
     if [ x"$BM_API_KEY" != x"" ]; then
         args="$args --api-key $BM_API_KEY"
     fi
-    args="$args --model $BM_MODEL_NAME --num-warmup-requests $BM_NUM_WARMUP --num-benchmark-requests $BM_NUM_BENCHMARK --max-concurrent-requests $BM_MAX_CONCURRENCY --stream "
+    if [ x"$BM_MODEL_NAME" != x"" ]; then
+        args="$args --model $BM_MODEL_NAME --endpoint-models ${path_prefix}/models"
+    else
+        args="$args --ignore-check"
+    fi
+    args="$args --num-warmup-requests $BM_NUM_WARMUP --num-benchmark-requests $BM_NUM_BENCHMARK --max-concurrent-requests $BM_MAX_CONCURRENCY --stream "
     args="$args --sampling-policy $BM_SAMPLE_POLICY"
     if [ "$BM_SAMPLE_POLICY" = "fixed" ]; then
         args="$args --fixed_prompt_len $BM_FIXED_INPUT_LEN --fixed_output_len $BM_FIXED_OUTPUT_LEN"

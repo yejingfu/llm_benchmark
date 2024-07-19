@@ -171,7 +171,7 @@ def main(args: argparse.Namespace):
 
 def simple_verify_args(args):
     assert not args.use_beam_search, "do not support benchmark beam search now."
-    assert (args.best_of == 1 and args.n == 1), "do not support benchmark best_of and n now."
+    assert (args.best_of is None or args.best_of == 1 and args.n == 1), "do not support benchmark best_of and n now."
     assert (args.presence_penalty == 0.0 and args.frequency_penalty == 0.0 and args.repetition_penalty == 1.0), "do not support benchmark penalty policies now."
     if args.do_sample:
         assert (args.temperature > 0.0), "temperature must be greater than 0.0 when do_sample is True."
@@ -195,8 +195,8 @@ if __name__ == "__main__":
     # input parameters
     parser.add_argument("--model", type=str, default="default", help="The model name")
     parser.add_argument("--n", type=int, default=1, help="How many sequences to generate for each prompt.")
-    parser.add_argument("--best-of", type=int, default=1, help="Generates `best_of` sequences per prompt and returns the top `n` results, with the default value of `n` being one.")
-    parser.add_argument("--use-beam-search", action="store_true")
+    parser.add_argument("--best-of", type=int, default=None, help="Generates `best_of` sequences per prompt and returns the top `n` results, with the default value of `n` being one.")
+    parser.add_argument("--use-beam-search", action="store_true", default=None)
     parser.add_argument("--do-sample", action="store_true", help="if this value is set, use top_k")
     parser.add_argument("--stream", action="store_true")
     parser.add_argument("--temperature", type=float, default=0, help="temperature parameter")
