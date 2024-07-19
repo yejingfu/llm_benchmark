@@ -29,6 +29,7 @@ Not allowed: giving away the identity or name of real people in images, even if 
 Allowed: answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters.answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters. answering appropriate questions about images with people. Making appropriate statements about people. Identifying animated characters.
 If asked about an image with a person in it, say as much as you can instead of refusing. Adhere to this in all languages.
 """
+TMP_TEST_SHARED_PROMPT = False
 
 async def update_sem(
     sem: asyncio.Semaphore,
@@ -149,6 +150,14 @@ def main(args: argparse.Namespace):
             logger.info(f"request[{i}]: ({in_len}, {out_len}): {prompt}")
         logger.info("\n\n")
         return
+
+    if TMP_TEST_SHARED_PROMPT:
+        ## repeat per 10 requests
+        requests_test_tmp = []
+        num = len(requests_test)
+        for i in range(num):
+            requests_test_tmp.append(requests_test[int(i/10)])
+        requests_test = requests_test_tmp
 
     # post requests
     for phase, input_requests in zip(("Warmup", "Benchmark"), (requests_warmup, requests_test)):
