@@ -154,6 +154,7 @@ class AysncRequestSender:
                     #logger.info(f"try: {i}")
                     try:
                         request_end_time = 0
+                        output = ""
                         async with session.post(url, headers = self.headers, json = payload) as res:
                             if res.status != 200:
                                 logger.error(f"Failed to send request: {url}, status: {res.status}, {res.text}")
@@ -178,12 +179,10 @@ class AysncRequestSender:
                                             #if "role" in choice0["delta"] and choice0["delta"]["role"] == "assistant" and "content" in choice0["delta"]:
                                             if "content" in choice0["delta"]:
                                                 content = choice0["delta"]["content"]
-                                    elif "text" in obj:
-                                        content = obj["text"]
+                                    if ttft is None:
+                                        first_token_time = time.perf_counter()
+                                        ttft = first_token_time - request_start_time
                                     if content is not None:
-                                        if ttft is None:
-                                            first_token_time = time.perf_counter()
-                                            ttft = first_token_time - request_start_time
                                         output += content
 
                         break
@@ -200,6 +199,9 @@ class AysncRequestSender:
                             raise Exception(f"All {retry} attempts failed: {e}")
 
             # end of session
+            if ttft is None or len(output) == 0:
+                logger.warning("zero output, ignore it")
+                return True
             if request_end_time == 0:
                 request_end_time = time.perf_counter()
             request_latency = request_end_time - request_start_time
