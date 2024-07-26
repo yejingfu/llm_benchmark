@@ -81,8 +81,10 @@ function run() {
 
     local args="--config ${EV_CONFIG}"
 
-    LOG INFO "[RUN]: docker run --rm -it -v ${EV_OPENCOMPASS_SRC}:/opencompass --entrypoint python3 ${selected_image} /opencompass/entry.py ${args}"
-    docker run --rm -it -v ${EV_OPENCOMPASS_SRC}:/opencompass --entrypoint python3 ${selected_image} /opencompass/entry.py ${args}
+    # LOG INFO "[RUN]: docker run --rm -it -v ${EV_OPENCOMPASS_SRC}:/opencompass --entrypoint python3 ${selected_image} /opencompass/entry.py ${args}"
+    # docker run --rm -it --gpus all -v ${EV_OPENCOMPASS_SRC}:/opencompass --entrypoint python3 ${selected_image} /opencompass/entry.py ${args}
+    LOG INFO "[RUN]: python3 ${EV_OPENCOMPASS_SRC}/entry.py ${args}"
+    python3 ${EV_OPENCOMPASS_SRC}/entry.py ${args}
 }
 
 function main() {
