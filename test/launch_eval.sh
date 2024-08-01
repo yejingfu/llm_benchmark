@@ -3,10 +3,12 @@ PRG_NAME=$(basename "${BASH_SOURCE[0]}")
 CUR_DIR=$(cd `dirname $0`;pwd)
 source $CUR_DIR/../scripts/base.sh
 # example
-# ./launch_eval.sh --opencompass-src /home/hanli/opencompass --config config.json --eval-degree dummy
+# ./launch_eval.sh --opencompass-src /ppio/abao/code/add_long_test/opencompass --with-docker on/off --v_tokenizer /ppio/models --config config.json --eval-degree dummy
 EV_OPENCOMPASS_SRC=
 EV_EVAL_DEGREE=
 EV_CONFIG=
+EV_DOCKER=
+EV_TOKENIZER=
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
@@ -75,16 +77,23 @@ function run() {
 
     # 解压opencompass数据集
     check_data
-
-    selected_image=$(select_opencompass_image)
-    LOG INFO "using docker image: ${selected_image}"
+    if [ x"$EV_DOCKER" = x"on" ]; then
+        selected_image=$(select_opencompass_image)
+        LOG INFO "using docker image: ${selected_image}"
+    fi
 
     local args="--config ${EV_CONFIG}"
+    
+    LOG INFO "--docker ${EV_DOCKER}"
+    LOG INFO "--docker ${EV_TOKENIZER}"
 
-    # LOG INFO "[RUN]: docker run --rm -it -v ${EV_OPENCOMPASS_SRC}:/opencompass --entrypoint python3 ${selected_image} /opencompass/entry.py ${args}"
-    # docker run --rm -it --gpus all -v ${EV_OPENCOMPASS_SRC}:/opencompass --entrypoint python3 ${selected_image} /opencompass/entry.py ${args}
-    LOG INFO "[RUN]: python3 ${EV_OPENCOMPASS_SRC}/entry.py ${args}"
-    python3 ${EV_OPENCOMPASS_SRC}/entry.py ${args}
+    if [ x"$EV_DOCKER" = x"on" ]; then
+        LOG INFO "[RUN]: docker run --rm -it -v ${EV_OPENCOMPASS_SRC}:/opencompass --entrypoint python3 ${selected_image} /opencompass/entry.py ${args}"
+        docker run --rm -it --gpus all  --net=host -e https_proxy=$https_proxy -e http_proxy=$http_proxy -v ${EV_OPENCOMPASS_SRC}:/opencompass -v ${EV_TOKENIZER}:/ppio_models --entrypoint python3 ${selected_image} /opencompass/entry.py ${args} 
+    else
+        LOG INFO "[RUN]: python3 ${EV_OPENCOMPASS_SRC}/entry.py ${args}"
+        python3 ${EV_OPENCOMPASS_SRC}/entry.py ${args}
+    fi
 }
 
 function main() {
@@ -101,6 +110,16 @@ function main() {
     --config)
         shift
         EV_CONFIG="$1"
+        shift
+        ;;
+    --with-docker)
+        shift
+        EV_DOCKER="$1"
+        shift
+        ;;
+    --v_tokenizer)
+        shift
+        EV_TOKENIZER="$1"
         shift
         ;;
     --eval-degree)
