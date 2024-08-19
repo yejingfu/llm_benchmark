@@ -176,6 +176,16 @@ def get_version(url: str):
         print(f"Exception is raised: {e}")
     return ""
 
+def exec_get_method(url: str):
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.text
+        else:
+            print(f"Response: {res}")
+    except e:
+        print(f"Exception is raised: {e}")
+    return ""
 
 
 def list_models(url: str):
@@ -198,9 +208,9 @@ def main(args):
         if args.path == v:
             action = k
             break
-    if not action:
-        print(f"Invalid path: {args.path}")
-        return
+    #if not action:
+    #    print(f"Invalid path: {args.path}")
+    #    return
     url = args.url + args.path
     print(f"Request: {url}")
 
@@ -249,7 +259,9 @@ def main(args):
         else:
             print(f"Error: {result.error}")
     else:
-        print(f"Not support path: {args.path}")
+        print(f"execute GET method: {url}")
+        ret = exec_get_method(url)
+        print(ret)
         return
     return
 

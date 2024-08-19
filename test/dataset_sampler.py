@@ -112,7 +112,14 @@ class DatasetSampler:
             fixed_output_len = kwargs["fixed_output_len"]
             logger.info(f"sampling with fixed policy, fixed_prompt_len: {fixed_prompt_len}, fixed_output_len: {fixed_output_len}")
             permutation = np.random.permutation(len(self.samples))
-            shuffled_data = [self.samples[i] for i in permutation]
+            #shuffled_data = [self.samples[i] for i in permutation]
+            ## filter out too short samples
+            threshold = fixed_prompt_len
+            shuffled_data = []
+            for i in permutation:
+                if sum([len(s) for s in self.samples[i]]) > threshold:
+                    shuffled_data.append(self.samples[i])
+            logger.info(f"Filtered out {len(shuffled_data)} shuffled samples")
             for data in shuffled_data:
                 prompt = ""
                 for idx, msg in enumerate(data):
@@ -184,8 +191,14 @@ class DatasetSampler:
             logger.error(f"Invalid sampling policy: {policy}")
         pb.close()
         # split the output to warmup and test set
+        if len(output) == 0:
+            raise ValueError("Empty samples filtered out")
+        if len(output) < num_requests:
+            logger.warning(f"Only get {len(output)} samples, duplicate them to {num_requests}")
+            copies = num_requests // len(output) + 1
+            output = output * copies
         output_warmup = output[:num_warmup]
-        output_test = output[num_warmup:]
+        output_test = output[num_warmup:num_requests]
         logger.info(f"Got {len(output_warmup)} requests for warmup and {len(output_test)} for testing")
         total_tokens = lambda requests: sum(prompt_len + output_len for _, prompt_len, output_len in requests)
         avg_prompt_len = lambda requests: np.mean([p for _, p, _ in requests])
