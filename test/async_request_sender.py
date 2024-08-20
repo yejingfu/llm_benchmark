@@ -220,8 +220,8 @@ class AysncRequestSender:
                 json.dump(record, f)
                 f.write("\n")
 
-    def dump_response_stats(self, tokenizer, stream, duration, print_dismatch, log_file):
-        if log_file is not None and log_file != "":
+    def dump_response_stats(self, tokenizer, stream, duration, print_dismatch, dump_res_details, prefix, log_file):
+        if dump_res_details and log_file is not None and log_file != "":
             self.save_response(log_file)
 
         num_responses = len(self.responses)
@@ -311,7 +311,7 @@ class AysncRequestSender:
             if k not in new_data:
                 new_data[k] = v
 
-        print(f"============ Dump responses stats ==========================")
+        print(f"============ Dump responses stats: {prefix} ==========================")
         print(f"[Latency] E2E(avg, p90): {result_data['avg_latency']:0.2f}, {result_data['latency_P90']:0.2f}")
         print(f"[Latency] TTFT(avg, p90): {result_data['*avg_TTFT']:0.2f}, {result_data['TTFT_P90']:0.2f}; TPOT(avg, p90): {result_data['*avg_TPOT']: .3f}, {result_data['TPOT_P90']: .3f}")
         print(f"[Throughput] (input, output): {result_data['prompt_tokens_per_second']}, {result_data['*output_tokens_per_second']}")
@@ -322,8 +322,18 @@ class AysncRequestSender:
 
         if log_file is not None and log_file != "":
             with open(log_file, "a") as f:
-                f.write("\n\n=============\n\n")
-                json.dump(new_data, f)
-                f.write("\n")
+                f.write(f"============ Dump responses stats: {prefix} ==========================\n")
+                f.write(f"[Latency] E2E(avg, p90): {result_data['avg_latency']:0.2f}, {result_data['latency_P90']:0.2f}\n")
+                f.write(f"[Latency] TTFT(avg, p90): {result_data['*avg_TTFT']:0.2f}, {result_data['TTFT_P90']:0.2f}; TPOT(avg, p90): {result_data['*avg_TPOT']: .3f}, {result_data['TPOT_P90']: .3f}\n")
+                f.write(f"[Throughput] (input, output): {result_data['prompt_tokens_per_second']}, {result_data['*output_tokens_per_second']}\n")
+                f.write(f"Details:\n")
+                max_key_length = max(len(str(k)) for k in new_data.keys())
+                for key, value in new_data.items():
+                    f.write(f"{str(key):<{max_key_length}} | {str(value)}\n")
+                f.write("\n\n")
+
+                #f.write("\n\n=============\n\n")
+                #json.dump(new_data, f)
+                #f.write("\n")
 
 

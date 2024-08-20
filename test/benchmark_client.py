@@ -167,7 +167,15 @@ def main(args: argparse.Namespace):
         asyncio.run(sender.post_batch_requests_async(args.max_concurrent_requests, input_requests, parameters, args.api_kind == "chat"))
         end_time = time.perf_counter()
         if phase == "Benchmark":
-            sender.dump_response_stats(tokenizer, args.stream, end_time - start_time, args.warn_dismatch_output_len, args.log_file)
+            prefix = args.model
+            if args.sampling_policy == "fixed":
+                prefix += f"({args.fixed_prompt_len}/{args.fixed_output_len})"
+            elif args.sampling_policy == "nature":
+                prefix += f"([{args.min_prompt_len}, {args.max_prompt_len}]/[{args.min_output_len}, {args.max_output_len}])"
+            elif args.sampling_policy == "normal":
+                prefix += f"([{args.prompt_len_mean, args.prompt_len_std}/[{args.output_len_mean}, {args.output_len_std}])"
+            prefix += f", {args.max_concurrent_requests}"
+            sender.dump_response_stats(tokenizer, args.stream, end_time - start_time, args.warn_dismatch_output_len, False, prefix, args.log_file)
 
 def simple_verify_args(args):
     assert not args.use_beam_search, "do not support benchmark beam search now."
