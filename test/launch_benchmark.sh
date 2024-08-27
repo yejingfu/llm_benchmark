@@ -25,6 +25,7 @@ BM_CHAT=0
 BM_ADD_SYS_PROMPT=0
 BM_DISABLE_WARN=0
 BM_DRY_RUN=
+BM_IGNORE_CHECK=0
 
 SAMPLE_POLICIES=("fixed" "nature" "normal")
 
@@ -45,6 +46,7 @@ function usage() {
     LOG INFO "  --disable-warn (optional) Supress the warning message if set"
     LOG INFO "  --parallel (optional) The num of requests sent in parallel"
     LOG INFO "  --add-sys-prompt (optional) Prepend system prompt prefix, using to test the prefix caching features"
+    LOG INFO "  --ignore-check (optional) Whether check llm server health"
     exit
 }
 
@@ -90,7 +92,9 @@ function run() {
     fi
     if [ x"$BM_MODEL_NAME" != x"" ]; then
         args="$args --model $BM_MODEL_NAME --endpoint-models ${path_prefix}/models"
-    else
+
+    fi
+    if [ $BM_IGNORE_CHECK -eq 1 ]; then
         args="$args --ignore-check"
     fi
     args="$args --num-warmup-requests $BM_NUM_WARMUP --num-benchmark-requests $BM_NUM_BENCHMARK --max-concurrent-requests $BM_MAX_CONCURRENCY --stream "
@@ -197,6 +201,10 @@ function main() {
     --disable-warn)
         shift
         BM_DISABLE_WARN=1
+        ;;
+    --ignore-check)
+        shift
+        BM_IGNORE_CHECK=1
         ;;
     *)
         usage
