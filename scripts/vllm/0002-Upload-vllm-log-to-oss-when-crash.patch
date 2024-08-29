@@ -1,7 +1,7 @@
 From 796ca8fd9e949f8ef84811b1c9cef4edd31e4ac8 Mon Sep 17 00:00:00 2001
 From: linke <linke@pplabs.org>
 Date: Wed, 28 Aug 2024 18:54:04 +0800
-Subject: [PATCH 2/2] Upload vllm log to oss when crash
+Subject: [PATCH 2/3] Upload vllm log to oss when crash
 
 set env LOG_UPLOAD_ENDPOINT for oss endpoint, can be "cos" or "aws"
 set env LOG_UPLOAD_LOCATION for the local path to log files storage

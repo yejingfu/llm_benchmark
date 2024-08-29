@@ -1,0 +1,35 @@
+From d32e2b7807006b5f4e67cd292465a94637c0b8fb Mon Sep 17 00:00:00 2001
+From: linke <linke@pplabs.org>
+Date: Thu, 29 Aug 2024 18:14:42 +0800
+Subject: [PATCH 3/3] Add "vllm.version" to tracing system
+
+Signed-off-by: linke <linke@pplabs.org>
+---
+ vllm/tracing.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/vllm/tracing.py b/vllm/tracing.py
+index 50b3519c..bc9dcbf5 100644
+--- a/vllm/tracing.py
++++ b/vllm/tracing.py
+@@ -3,6 +3,7 @@ from typing import Mapping, Optional
+ 
+ from vllm.logger import init_logger
+ from vllm.utils import run_once
++from vllm.version import __version__ as VLLM_VERSION
+ 
+ TRACE_HEADERS = ["traceparent", "tracestate"]
+ 
+@@ -100,7 +101,8 @@ def init_tracer(instrumenting_module_name: str,
+ 
+     resource = Resource(attributes={
+         SERVICE_NAME: "vllm",
+-        HOST_NAME: os.environ.get("HOSTNAME", "localhost")
++        HOST_NAME: os.environ.get("HOSTNAME", "localhost"),
++        "vllm.version": VLLM_VERSION
+     })
+     trace_provider = TracerProvider(resource=resource, active_span_processor=span_processor)
+     set_tracer_provider(trace_provider)
+-- 
+2.34.1
+
