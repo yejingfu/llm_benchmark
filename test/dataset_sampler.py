@@ -3,6 +3,7 @@ import json
 from tqdm import tqdm
 import numpy as np
 import random
+from typing import List, Optional, Tuple
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
@@ -26,31 +27,26 @@ POLICY_KEYS = {
 
 class DatasetSampler:
     def __init__(self, dataset_path: str):
-        logger.info(f"loading dataset from {dataset_path}")
-        with open(dataset_path, "r", encoding="utf-8") as f:
-            dataset = json.load(f)
-        logger.info(f"{len(dataset)} samples loaded")
+        self.dataset_path = dataset_path
 
-        self.samples = []
-        for sample in tqdm(dataset):
-            conversions = []
-            for conversion in sample["conversations"]:
-                if len(conversion["value"]) == 0:
-                    continue
-                elif len(conversions) % 2 == 0:
-                    if conversion["from"] in ["user", "human"]:
-                        conversions.append(conversion["value"])
-                else:
-                    if conversion["from"] in ["gpt", "chatgpt", "bing", "bard"]:
-                        conversions.append(conversion["value"])
-            if len(conversions) % 2 == 1:
-                conversions = conversions[:-1]
-            if len(conversions) > 0:
-                self.samples.append(conversions)
-        logger.info(f"{len(self.samples)} are filtered")
+    def load_from_dataset(self, name:str) -> Optional[List[Tuple[str, str]]]:
+        logger.info(f"Load from dataset: {name}")
+        dataset = None
+        if "sharegpt" in name.lower() or "share_gpt" in name.lower():
+            with open(name, "r", encoding="utf-8") as f:
+                dataset = json.load(f)
+        if dataset is None:
+            raise RuntimeError(f"Failed to load dataset {name}")
+        logger.info(f"Totally {len(dataset)} samples loaded")
+        dataset = [data for data in dataset if len(data["conversations"]) >= 2]
+        dataset = [(data["conversations"][0]["value"], data["conversations"][1]["value"]) for data in dataset]
+        #random.shuffle(dataset)
+        logger.info(f"{len(dataset)} samples are filtered")
+        return dataset
 
     def sample_requests(self, num_warmup, num_test, tokenizer, system_prompt, policy, **kwargs):
-        if len(self.samples) == 0:
+        samples = self.load_from_dataset(self.dataset_path)
+        if len(samples) == 0:
             logger.error("The dataset is empty")
             return None, None
         keys = POLICY_KEYS[policy]
@@ -73,8 +69,8 @@ class DatasetSampler:
             max_prompt_len = kwargs["max_prompt_len"]
             max_prompt_output_len = kwargs["max_prompt_output_len"]
             logger.info(f"sampling with nature policy, max_turns: {max_turns}, min_prompt_len: {min_prompt_len}, min_output_len: {min_output_len}, max_prompt_len: {max_prompt_len}, max_prompt_output_len: {max_prompt_output_len}")
-            permutation = np.random.permutation(len(self.samples))
-            shuffled_data = [self.samples[i] for i in permutation]
+            permutation = np.random.permutation(len(samples))
+            shuffled_data = [samples[i] for i in permutation]
             for data in shuffled_data:
                 turns = min(len(data) // 2, max_turns)
                 selected_turn = np.random.randint(0, turns)
@@ -111,14 +107,14 @@ class DatasetSampler:
             fixed_prompt_len = kwargs["fixed_prompt_len"]
             fixed_output_len = kwargs["fixed_output_len"]
             logger.info(f"sampling with fixed policy, fixed_prompt_len: {fixed_prompt_len}, fixed_output_len: {fixed_output_len}")
-            permutation = np.random.permutation(len(self.samples))
-            #shuffled_data = [self.samples[i] for i in permutation]
+            permutation = np.random.permutation(len(samples))
+            #shuffled_data = [samples[i] for i in permutation]
             ## filter out too short samples
             threshold = fixed_prompt_len
             shuffled_data = []
             for i in permutation:
-                if sum([len(s) for s in self.samples[i]]) > threshold:
-                    shuffled_data.append(self.samples[i])
+                if sum([len(s) for s in samples[i]]) > threshold:
+                    shuffled_data.append(samples[i])
             logger.info(f"Filtered out {len(shuffled_data)} shuffled samples")
             for data in shuffled_data:
                 prompt = ""
@@ -146,9 +142,9 @@ class DatasetSampler:
             output_len_mean = kwargs["output_len_mean"]
             output_len_std = kwargs["output_len_std"]
             logger.info(f"sampling with normal policy, prompt_len: {prompt_len_mean}, {prompt_len_std}, output_len: {output_len_mean}, {output_len_std}, max_seq_len: {max_seq_len}")
-            weights = [sum([len(msg) for msg in sample]) * len(self.samples) + idx for idx, sample in enumerate(self.samples)]
+            weights = [sum([len(msg) for msg in sample]) * len(samples) + idx for idx, sample in enumerate(samples)]
             sorted_indices = np.argsort(weights)
-            sorted_data = [self.samples[i] for i in sorted_indices]
+            sorted_data = [samples[i] for i in sorted_indices]
             prompt_lens = np.rint(np.random.normal(prompt_len_mean, prompt_len_std, size=num_requests)).astype(np.int64)
             output_lens = np.rint(np.random.normal(output_len_mean, output_len_std, size=num_requests)).astype(np.int64)
             sorted_indices = np.argsort(prompt_lens + output_lens)
