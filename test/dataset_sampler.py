@@ -124,8 +124,8 @@ class DatasetSampler:
                             prompt += f"<s>[INST] {sys_msg}{msg} [/INST]"
                         else:
                             prompt += f"<s>[INST] {msg} [/INST]"
-                    else:
-                        prompt += f"{msg} </s>"
+                    #else:
+                    #    prompt += f"{msg} </s>"
                 prompt_tokens = tokenizer.encode(prompt)
                 if len(prompt_tokens) < fixed_prompt_len:
                     continue
@@ -168,15 +168,13 @@ class DatasetSampler:
                             prompt += f"<s>[INST] {sys_msg}{msg} [/INST]"
                         else:
                             prompt += f"<s>[INST] {msg} [/INST]"
-                    else:
-                        prompt += f"{msg} </s>"
+                    #else:
+                    #    prompt += f"{msg} </s>"
                 prompt_tokens = tokenizer.encode(prompt)
-                #logger.info(f"====2: {prompt_len}, {len(prompt_tokens)}")
                 if len(prompt_tokens) < prompt_len:
                     continue
                 prompt_tokens = prompt_tokens[:prompt_len]
                 prompt = tokenizer.decode(prompt_tokens)
-                #logger.info("====3")
                 output.append((prompt, int(prompt_len), int(output_len)))
                 pb.update(1)
                 if len(output) == num_requests:

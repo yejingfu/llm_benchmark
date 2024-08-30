@@ -5,7 +5,6 @@ import asyncio
 import json
 import numpy as np
 import random
-import requests
 import subprocess
 import time
 import copy
@@ -23,10 +22,18 @@ STRICT_SEMAPHORE=False
 PERCENTILES = [25, 50, 75, 90, 95, 99, 99.9, 99.99]
 
 @dataclass
+class RequestData:
+    prompt: str = field(default="")
+    prompt_len: int = field(default=0)
+    ref_output: str = field(default="")
+    max_tokens: int = field(default=0)
+
+@dataclass
 class Response:
     prompt: str = field(default="")
     generated: str = field(default="")
     prompt_len: int = field(default=0)
+    ref_output: str = field(default="")
     output_len: int = field(default=0)
     latency: float = field(default=0.0)
     decode_latency: float = field(default=0.0)
@@ -94,7 +101,7 @@ class AysncRequestSender:
     def get_response(self) -> List[Response]:
         return self.responses
 
-    async def post_batch_requests_async(self, batch_size: int, requests: List[Tuple[str, int, int]], parameters: InputParameter, chat_completions: bool):
+    async def post_batch_requests_async(self, batch_size: int, requests: List[RequestData], parameters: InputParameter, chat_completions: bool):
         url = self.base_url + (self.ep_chat if chat_completions else self.ep_completion)
         logger.info(f"post requests({len(requests)}), concurrency: {batch_size}, model: {parameters.model}, url: {url}")
         self.responses = []
@@ -107,8 +114,7 @@ class AysncRequestSender:
                 await semaphore.acquire()
             tasks.append(asyncio.create_task(self._update_sem(semaphore, 1, 60, batch_size - 1, len(requests))))
         for request in requests:
-            prompt, prompt_len, output_len = request
-            task = asyncio.create_task(self._post_one_request(semaphore, prompt, prompt_len, output_len, parameters, chat_completions))
+            task = asyncio.create_task(self._post_one_request(semaphore, request, parameters, chat_completions))
             tasks.append(task)
             task.add_done_callback(lambda _: progress_bar.update())
         await asyncio.gather(*tasks)
@@ -126,7 +132,7 @@ class AysncRequestSender:
             for _ in range(p):
                 sem.release()
 
-    async def _post_one_request(self, semaphore: asyncio.Semaphore, prompt: str, prompt_len: int, output_len: int, parameters: InputParameter, chat_completions: bool):
+    async def _post_one_request(self, semaphore: asyncio.Semaphore, request: RequestData, parameters: InputParameter, chat_completions: bool):
         # prepare header, payload and params
         timeout = aiohttp.ClientTimeout(total=3600 * 3)
         retry = 1
@@ -138,10 +144,10 @@ class AysncRequestSender:
             parameters.messages = []
             if self.sys_prompt:
                 parameters.messages.append({"role": "system", "content": self.sys_prompt})
-            parameters.messages.append({"role": "user", "content": prompt})
+            parameters.messages.append({"role": "user", "content": request.prompt})
         else:
-            parameters.prompt = prompt
-        parameters.max_tokens = output_len
+            parameters.prompt = request.prompt
+        parameters.max_tokens = request.max_tokens
         payload = parameters.to_dict()
         url = self.base_url + (self.ep_chat if chat_completions else self.ep_completion)
         # post now
@@ -206,11 +212,9 @@ class AysncRequestSender:
                 request_end_time = time.perf_counter()
             request_latency = request_end_time - request_start_time
             decode_latency = request_end_time - first_token_time
-            if output_len > 1:
-                tpot = decode_latency / (output_len - 1)
             if PRINT_GENERATE_TEXT:
                 logger.info(f"Generated text from server: {output}")
-            self.responses.append(Response(prompt=prompt, generated=output, prompt_len=prompt_len, output_len=output_len, latency=request_latency, decode_latency=decode_latency, ttft=ttft, tpot=tpot))
+            self.responses.append(Response(prompt=request.prompt, generated=output, prompt_len=request.prompt_len, ref_output=request.ref_output, output_len=request.max_tokens, latency=request_latency, decode_latency=decode_latency, ttft=ttft, tpot=tpot))
             return True
 
     def save_response(self, file_path):
@@ -228,6 +232,7 @@ class AysncRequestSender:
         if num_responses == 0:
             return
         total_generate_tokens = 0
+        ## calcuate the tpot for every response
         for response in self.responses:
             generated_tokens = tokenizer.encode(response.generated, add_special_tokens=False)
             generated_len = len(generated_tokens)
@@ -239,7 +244,7 @@ class AysncRequestSender:
             if abs(generated_len - response.output_len) > 10:
                 if print_dismatch:
                     logger.warning(f"expect generated {response.output_len} tokens, but got {len(generated_tokens)}.")
-                response.tpot = round(response.decode_latency / generated_len, 2)
+            response.tpot = round(response.decode_latency / generated_len, 2) ## update the tpot by the correct generated token length
 
         total_prompt_tokens = np.sum([response.prompt_len for response in self.responses])
         total_tokens = total_prompt_tokens + total_generate_tokens

@@ -19,7 +19,7 @@ from tqdm.asyncio import tqdm as async_tqdm
 from typing import List, Tuple, Union, Optional, Dict
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from dataset_sampler import DatasetSampler
-from async_request_sender import Response, InputParameter, AysncRequestSender
+from async_request_sender import RequestData, Response, InputParameter, AysncRequestSender
 
 REQUEST_RESPONSES: List[Response] = []
 
@@ -163,8 +163,11 @@ def main(args: argparse.Namespace):
     for phase, input_requests in zip(("Warmup", "Benchmark"), (requests_warmup, requests_test)):
         if len(input_requests) == 0:
             continue
+        real_reqs = []
+        for req in input_requests:
+            real_reqs.append(RequestData(prompt=req[0], prompt_len=req[1], max_tokens=req[2]))
         start_time = time.perf_counter()
-        asyncio.run(sender.post_batch_requests_async(args.max_concurrent_requests, input_requests, parameters, args.api_kind == "chat"))
+        asyncio.run(sender.post_batch_requests_async(args.max_concurrent_requests, real_reqs, parameters, args.api_kind == "chat"))
         end_time = time.perf_counter()
         if phase == "Benchmark":
             prefix = args.model
