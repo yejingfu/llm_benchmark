@@ -89,7 +89,7 @@ async def async_request_openai_completions(
         assert not request_input.use_beam_search
         payload = {
             "model": request_input.model,
-            "temperature": 0.0,
+            #"temperature": 0.0,
             "max_tokens": request_input.output_len,
             "stream": request_input.stream,
         }
