@@ -61,20 +61,19 @@ def remove_prefix(text: str, prefix: str) -> str:
         return text[len(prefix):]
     return text
 
-def print_chunk_progressly(count: int, prefix: str, data):
-    text = prefix.split("\n")[-1]
+def print_chunk_streamly(count: int, data):
+    cur = None
     if "choices" in data:
         if "text" in data["choices"][0]:
-            text += f"{data['choices'][0]['text']}"
+            cur = f"{data['choices'][0]['text']}"
         elif "message" in data["choices"][0]:
-            text += f"{data['choices'][0]['message']['content']}"
+            cur = f"{data['choices'][0]['message']['content']}"
     elif "text" in data:
-        text += f"{data['text']}"
-    if data.get("usage", None) is not None:
-        text += f" \n\n{data['usage']}\n\n"
-    print('\r' + f"[{count}]: " + text, end="", flush=True)
-    #sys.stdout.write(f"\rIteration {count}: " + text)
-    #sys.stdout.flush()
+        cur = f"{data['text']}"
+
+    if cur is not None:
+        sys.stdout.write(cur)
+        sys.stdout.flush()
 
 async def async_request_openai_completions(
     action: str,
@@ -89,7 +88,7 @@ async def async_request_openai_completions(
         assert not request_input.use_beam_search
         payload = {
             "model": request_input.model,
-            #"temperature": 0.0,
+            #"temperature": 0.8,
             "max_tokens": request_input.output_len,
             "stream": request_input.stream,
         }
@@ -127,8 +126,8 @@ async def async_request_openai_completions(
                             latency = time.perf_counter() - st
                         else:
                             data = json.loads(chunk)
-                            if print_progress:
-                                print_chunk_progressly(iter, generated_text, data)
+                            if print_progress and request_input.stream:
+                                print_chunk_streamly(iter, data)
                             text = None
                             if "choices" in data:
                                 if "text" in data["choices"][0]:
@@ -153,6 +152,8 @@ async def async_request_openai_completions(
                     output.generated_text = generated_text
                     output.success = True
                     output.latency = latency
+                    if not request_input.stream:
+                        print(output.generated_text)
                 else:
                     output.success = False
                     details = await response.text()
@@ -295,7 +296,7 @@ def main(args):
         result = asyncio.run(async_request_openai_completions(action, input, print_progress = print_chunck))
         end_time = time.time()
         #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
-        print(f"Time elapsed: {end_time - start_time} seconds.")
+        print(f"\n Time elapsed: {end_time - start_time} seconds.")
         if result.success:
             if not args.stream and not print_chunck:
                 print(f"Generated text: {result.generated_text}")
