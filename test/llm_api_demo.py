@@ -8,6 +8,7 @@ import time
 import warnings
 import aiohttp
 import requests
+from loguru import logger
 from tqdm.asyncio import tqdm
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -20,7 +21,9 @@ VLLM_ENDPOINTS = {
     "health": "/health",
     "models": "/v1/models",
     "completions": "/v1/completions",
-    "chat-completions": "/v1/chat/completions"
+    "chat-completions": "/v1/chat/completions",
+    "embeddings": "/v1/embeddings",
+    "compatible-embeddings": "/compatible-mode/v1/embeddings"
 }
 
 @dataclass
@@ -45,6 +48,13 @@ class RequestOutput:
         default_factory=list)  # List of inter-token latencies
     prompt_len: int = 0
     error: str = ""
+
+@dataclass
+class EmbeddingOutput:
+    embeddings: List[float] = field(default_factory=list)
+    prompt_len: int = 0
+    total_len: int = 0
+    err: str = ""
 
 def remove_prefix(text: str, prefix: str) -> str:
     if text.startswith(prefix):
@@ -156,6 +166,36 @@ async def async_request_openai_completions(
         pbar.update(1)
     return output
 
+## reference: https://help.aliyun.com/zh/model-studio/developer-reference/embedding-interfaces-compatible-with-openai
+async def async_generate_embeddings(url: str, input: str, model_name: str, api_key: str = None) -> EmbeddingOutput:
+    async with aiohttp.ClientSession(timeout=AIOHTTP_TIMEOUT) as session:
+        payload = {
+            "input": input,
+            "model": model_name,
+            "encoding_format": "float"
+        }
+        headers = {"User-Agent": "LLM API Client"}
+        if api_key is not None and api_key != "":
+            headers["Authorization"] = "Bearer " + api_key
+        output: EmbeddingOutput = None
+        try:
+            async with session.post(url=url, json=payload, headers=headers) as response:
+                if response.status == 200:
+                    async for chunk_bytes in response.content:
+                        chunk_bytes = chunk_bytes.strip()
+                        if not chunk_bytes:
+                            continue
+                        data = json.loads(chunk_bytes)
+                        if "data" in data and len(data["data"]) > 0:
+                            e = data["data"][0]["embedding"]
+                            output = EmbeddingOutput(embeddings=data["data"][0]["embedding"], prompt_len=data["usage"]["prompt_tokens"], total_len=data["usage"]["total_tokens"])
+
+                else:
+                    logger.error(f"Failed to generate embedddings, error: {response.status}, {response.reason}")
+        except Exception as ex:
+            logger.error(f"Exception raised when generate embeddings: {ex}")
+        return output
+
 def check_health(url: str, ) -> bool:
     try:
         response = requests.get(url, timeout=10)
@@ -176,9 +216,12 @@ def get_version(url: str):
         print(f"Exception is raised: {e}")
     return ""
 
-def exec_get_method(url: str):
+def exec_get_method(args):
     try:
-        res = requests.get(url, timeout=10)
+        headers = {"User-Agent": "LLM API Client"}
+        if args.api_key is not None and args.api_key != "":
+            headers["Authorization"] = "Bearer " + args.api_key
+        res = requests.get(args.url + args.path, headers=headers, timeout=10)
         if res.status_code == 200:
             return res.text
         else:
@@ -258,9 +301,15 @@ def main(args):
                 print(f"Generated text: {result.generated_text}")
         else:
             print(f"Error: {result.error}")
+    elif action == "embeddings" or action == "compatible-embeddings":
+        if args.url is None or args.model_name is None or args.prompt is None:
+            logger.error("Invalid embeddings paramters, required arguments: url, model-name, prompt")
+            return
+        result = asyncio.run(async_generate_embeddings(url, args.prompt, args.model_name, args.api_key))
+        logger.info(f"Embbedings result: {result}")
     else:
         print(f"execute GET method: {url}")
-        ret = exec_get_method(url)
+        ret = exec_get_method(args)
         print(ret)
         return
     return
