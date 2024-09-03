@@ -1,0 +1,148 @@
+To extract the bill number, follow these guidelines:
+1. Look for any occurrence of the phrase 'bill number' or its variations within the text. Variations may include 'invoice number', 'ticket number', 'receipt number', 'document number', 'Web portal identifier', or similar terms.
+2. The phrase 'bill number' may be followed by any punctuation marks, such as a colon (':'), comma (','), period ('.'), or the 
+word 'No'.
+3. Extract the text immediately following the phrase 'Factura Electronica de Venta' and any subsequent punctuation marks, considering them as part of the bill number. Ensure that the extracted value includes both the prefix and suffix.
+4. For text starting with 'APV', concatenate the numbers and letters following 'APV' without spaces or punctuation. For example, 'APV : 1621 79V70748' should be extracted as '162179V70748'.
+5. Ensure that the value is extracted accurately, without any additional text or characters.
+
+If a value is extracted successfully, respond with 'Yes' along with only the extracted value without any additional text or formatting. If no such value is found, respond with 'No'.
+
+For example:
+For example:
+- If the text contains 'Bill number: XYZ-1234', reply with 'Yes, XYZ-1234'.
+- If the text contains 'Factura Electronica de Venta No XYZ - 5678', reply with 'Yes, XYZ - 5678'.
+- If the text contains 'INDENTIFICADOR PORTAL WEB
+ TBG0009505', reply with 'Yes, TBG0009505'.
+- If the text contains 'FACTURA DEVenta : ADO: â€” 26034', reply with 'Yes, ADO26034'.
+- If the text contains 'FACTURA DEVenta : ADOâ€™ 26036', reply with 'Yes, ADO26036'.
+- If the text contains 'FACTURA DEVenta : ADO’ 26036', reply with 'Yes, ADO26036'.
+- If the text contains '26048 FACTURA DEVenta : ADO:', reply with 'Yes, ADO26048'.
+- If the text contains 'Orden 537724-00 1- 0005', reply with 'Yes, 537724-001-0005'.
+- If the text contains 'APV : 1621 79V70748', reply with 'Yes, 162179V70748'.
+- If the text contains 'APV - : 1621 79V70747', reply with 'Yes, 162179V70747'.
+- If the text contains 'APV:162179V70755', reply with 'Yes, 162179V70755'.
+- If the text contains 'APV : - 1621 79V70756', reply with 'Yes, 162179V70756'.
+- If the text contains 'APV: 1621 79V70757', reply with 'Yes, 162179V70757'.
+- If the text contains 'APV:162179V70758', reply with 'Yes, 162179V70758'.
+- If the text contains 'APV : 1621 79V70762', reply with 'Yes, 162179V70762'.
+- If the text contains 'APV:162179V70765 -', reply with 'Yes, 162179V70765'.
+- If the text contains 'APV : 1621 79V70769', reply with 'Yes, 162179V70769'.
+- If the text contains 'APV : 1621 79V70770', reply with 'Yes, 162179V70770'.
+- If the text contains 'TURNO # 7835', reply with 'Yes, 7835'.
+- If the text contains 'TURNO # 43 7836', reply with 'Yes, 7836'.
+- If the text contains 'TURNO # 43 7837', reply with 'Yes, 7837'.
+- If the text contains 'TURNO # 43 7838', reply with 'Yes, 7838'.
+- If the text contains 'TURNO # 43 7839', reply with 'Yes, 7839'.
+- If the text contains 'TURNO # 43 7840', reply with 'Yes, 7840'.
+- If the text contains 'TURNO # 43 7841', reply with 'Yes, 7841'.
+- If the text contains 'TURNO # 43 7842', reply with 'Yes, 7842'.
+- If the text contains 'TURNO # 4 7843', reply with 'Yes, 7843'.
+- If the text contains 'TURNO # 4 7844', reply with 'Yes, 7844'.
+- If the text contains 'TURNO # 4 7845', reply with 'Yes, 7845'.
+- If the text contains 'TURNO # 43 7846', reply with 'Yes, 7846'.
+-Text: "APV : 162179V70770" -> Yes, 162179V70770
+-Text: "Folio Ticket: 759, Numero Ticket: 1720113666" -> Yes, 759
+-Text: "Recibo #: 6140" -> Yes, 6140
+-Text: "APV : 162179V71055" -> Yes, 162179V71055
+-Text: "Orden 65209-001-0007" -> Yes, 65209-001-0007
+-Text: "Orden 65209-001-0005" -> Yes, 65209-001-0005
+-Text: "TURNO # 435 7798" -> Yes, 4357798
+-Text: "TURNO # 435 7794" -> Yes, 4357794
+-Text: "Folio Ticket: 763" -> Yes, 763
+-Text: "APV : 162179V71055 , APV : 162179V71055" -> Yes, 162179V71055
+-Text: "Orden 65209-001-0007 , Orden 65209-001-0007" -> Yes, 65209-001-0007
+-Text: "TURNO # 435 7798 , TURNO # 435 7798" -> Yes, 4357798
+-Text: "APV : 162179V70771" -> Yes, 162179V70771
+-Text: "Folio Ticket: 760, Numero Ticket: 1720113667" -> Yes, 760
+-Text: "Recibo #: 6141" -> Yes, 6141
+-Text: "APV : 162179V71056" -> Yes, 162179V71056
+-Text: "Orden 65209-001-0008" -> Yes, 65209-001-0008
+-Text: "Orden 65209-001-0006" -> Yes, 65209-001-0006
+-Text: "TURNO # 435 7799" -> Yes, 4357799
+-Text: "TURNO # 435 7795" -> Yes, 4357795
+-Text: "Folio Ticket: 764" -> Yes, 764
+-Text: "APV : 162179V71057 , APV : 162179V71057" -> Yes, 162179V71057
+-Text: "Orden 65209-001-0008 , Orden 65209-001-0008" -> Yes, 65209-001-0008
+-Text: "TURNO # 435 7799 , TURNO # 435 7799" -> Yes, 4357799
+-Text: "APV : 162179V70772" -> Yes, 162179V70772
+-Text: "Folio Ticket: 761, Numero Ticket: 1720113668" -> Yes, 761
+-Text: "Recibo #: 6142" -> Yes, 6142
+-Text: "APV : 162179V71058" -> Yes, 162179V71058
+-Text: "Orden 65209-001-0009" -> Yes, 65209-001-0009
+-Text: "Orden 65209-001-0007" -> Yes, 65209-001-0007
+-Text: "TURNO # 435 7800" -> Yes, 4357800
+-Text: "TURNO # 435 7796" -> Yes, 4357796
+-Text: "Folio Ticket: 765" -> Yes, 765
+-Text: "APV : 162179V71059 , APV : 162179V71059" -> Yes, 162179V71059
+-Text: "Orden 65209-001-0009 , Orden 65209-001-0009" -> Yes, 65209-001-0009
+-Text: "TURNO # 435 7800 , TURNO # 435 7800" -> Yes, 4357800
+-Text: "APV : 162179V70773" -> Yes, 162179V70773
+-Text: "Folio Ticket: 762, Numero Ticket: 1720113669" -> Yes, 762
+-Text: "Recibo #: 6143" -> Yes, 6143
+-Text: "APV : 162179V71060" -> Yes, 162179V71060
+-Text: "Orden 65209-001-0010" -> Yes, 65209-001-0010
+-Text: "Orden 65209-001-0008" -> Yes, 65209-001-0008
+-Text: "TURNO # 435 7801" -> Yes, 4357801
+-Text: "TURNO # 435 7797" -> Yes, 4357797
+-Text: "Folio Ticket: 766" -> Yes, 766
+-Text: "APV : 162179V71061 , APV : 162179V71061" -> Yes, 162179V71061
+-Text: "Orden 65209-001-0010 , Orden 65209-001-0010" -> Yes, 65209-001-0010
+-Text: "TURNO # 435 7801 , TURNO # 435 7801" -> Yes, 4357801
+-Text: "APV : 162179V70774" -> Yes, 162179V70774
+-Text: "Folio Ticket: 763, Numero Ticket: 1720113670" -> Yes, 1720113670
+-Text: "Ticket: 162179V70775" -> Yes, 162179V70775
+-Text: "Ticket : 162179V70776" -> Yes, 162179V70776
+-Text: "Ticket : 162179V70777" -> Yes, 162179V70777
+-Text: "Ticket : 162179V70778" -> Yes, 162179V70778
+-Text: "Ticket : 162179V70779" -> Yes, 162179V70779
+-Text: "Ticket : 162179V70780" -> Yes, 162179V70780
+-Text: "Ticket : 162179V70781" -> Yes, 162179V70781
+-Text: "Ticket: 162179V70782" -> Yes, 162179V70782
+-Text: "Ticket: 162179V70783" -> Yes, 162179V70783
+-Text: "Ticket : 162179V70784" -> Yes, 162179V70784
+-Text: "TicketVenta.TI242159"  -> Yes,TI242159
+-Text: "TicketVenta.TI242160"  -> Yes,TI242160
+-Text: "TicketVenta.TI242165"  -> Yes,TI242165
+-Text: "TicketVenta.TI242169"  -> Yes,TI242169
+-Text: "TicketVenta.TI242171"  -> Yes,TI242171
+-Text: "TURNO 7834" -> Yes,7834
+-Text: "TURNO 7834" -> Yes,7834
+-Text: "TURNO 7834" -> Yes,7834
+-Text: "Orden 66310-001-0017" -> Yes,66310-001-0017
+-Text: "Orden 66310-001-0020" -> Yes,66310-001-0020
+-Text: "Orden 66310-001-0025" -> Yes,66310-001-0025
+-Text: "Orden 66310-001-0030" -> Yes,66310-001-0030
+-Text: "FOLIO 4741" -> Yes,4741
+-Text: "FOLIO 4745" -> Yes,4745
+-Text: "FOLIO 4750" -> Yes,4750
+-Text: "Codigo Turno 708" ->Yes,708
+-Text: "Codigo Turno 710" -> Yes,710
+-Text: "Codigo Turno 702" -> Yes,702
+-Text: "Codigo Turno 710" -> Yes,710
+-Text: "Codigo Turno 715" -> Yes,715
+-Text: "TICKET 14481" -> Yes,14481
+-Text: "TICKET 14485" -> Yes,14485
+-Text: "TICKET 14493" -> Yes,14493
+-Text: "TICKET 14493" -> Yes,14493
+-Text:Invoice # 17223" -> Yes,17223
+-Text:Invoice # 17225" -> Yes,17225
+-Text:Invoice # 17230" -> Yes,17230
+-Text:TURNO # 45 8133" -> Yes,8133
+-Text:TURNO # 45 8140" -> Yes,8140
+-Text:TURNO # 45 8138" -> Yes,8138
+-Text:TURNO # 45 8141"-> Yes,8141
+-Text:TURNO # 45 8135" -> Yes,8135
+-Text:TURNO # 45 8131" -> Yes,8131
+-Text:chk 9337" - > Yes,9337
+-Text:chk 9338" - > Yes,9338
+-Text:chk 9340" - > Yes,9340
+-Text:chk 9345" - > Yes,9345
+-Text:chk 9350" - > Yes,9350
+-Text:chk 9355" - > Yes,9355
+-Text:chk 9331" - > Yes,9331
+-Text:chk 9332" - > Yes,9332
+-Text:chk 9333" - > Yes,9333
+-Text:chk 9335" - > Yes,9335
+Note: Remember '\uYYYY' or '\uYYYY YYYY' is an outlier and we need to ignore those and just reply with the bill number without 
+those characters.

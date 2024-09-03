@@ -86,6 +86,10 @@ async def async_request_openai_completions(
 
     async with aiohttp.ClientSession(timeout=AIOHTTP_TIMEOUT) as session:
         assert not request_input.use_beam_search
+        if os.path.isfile(request_input.prompt) and os.path.exists(request_input.prompt):
+            with open(request_input.prompt, "r") as f:
+                request_input.prompt = f.read()
+                logger.info(f"Load prompt from file: {request_input.prompt}")
         payload = {
             "model": request_input.model,
             #"temperature": 0.8,
@@ -100,6 +104,14 @@ async def async_request_openai_completions(
             payload["prompt"] = request_input.prompt
         elif action == "chat-completions":
             payload["messages"] = [{"role": "user", "content": request_input.prompt}]
+
+        ## more parameters
+        #payload["temperature"] = 0.2
+        #payload["top_k"] = 5
+        #payload["frequency_penalty"] = 0.5
+        #payload["presence_penalty"] = 0.1
+        #payload["max_tokens"] = 30
+
         headers = {"User-Agent": "LLM API Client"}
         if api_key is not None and api_key != "":
             headers["Authorization"] = "Bearer " + api_key
@@ -293,15 +305,25 @@ def main(args):
         print(input)
         print_chunck = True
         start_time = time.time()
-        result = asyncio.run(async_request_openai_completions(action, input, print_progress = print_chunck))
+        result = None
+        if args.repeat > 1:
+            async def _run_requests_in_batch(num):
+                tasks: List[asyncio.Task] = []
+                for _ in range(num):
+                    tasks.append(asyncio.create_task(async_request_openai_completions(action, input, print_progress = print_chunck)))
+                await asyncio.gather(*tasks)
+            asyncio.run(_run_requests_in_batch(args.repeat))
+        else:
+            result = asyncio.run(async_request_openai_completions(action, input, print_progress = print_chunck))
         end_time = time.time()
         #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
         print(f"\n Time elapsed: {end_time - start_time} seconds.")
-        if result.success:
-            if not args.stream and not print_chunck:
-                print(f"Generated text: {result.generated_text}")
-        else:
-            print(f"Error: {result.error}")
+        if result is not None:
+            if result.success:
+                if not args.stream and not print_chunck:
+                    print(f"Generated text: {result.generated_text}")
+            else:
+                print(f"Error: {result.error}")
     elif action == "embeddings" or action == "compatible-embeddings":
         if args.url is None or args.model_name is None or args.prompt is None:
             logger.error("Invalid embeddings paramters, required arguments: url, model-name, prompt")
@@ -327,6 +349,7 @@ if __name__ == "__main__":
     parser.add_argument("--ignore-eos", action="store_true", help="Force to ouput the maximum length of the output, ignore eos when found.", default=None)
     parser.add_argument("--best-of", type=int, help="The number of best candicates in the sampling phase")
     parser.add_argument("--stream", action="store_true", help="Whether to stream the output or not.")
+    parser.add_argument("--repeat", type=int, help="The number to repeat the same requests.", default=1)
 
     args = parser.parse_args()
     main(args)
