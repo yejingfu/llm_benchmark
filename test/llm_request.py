@@ -116,6 +116,18 @@ class ApiContext:
             first_token_time = None
             response, chunk_gen = await self.func(self)
             self.metrics.ttr = time.time() - start_time
+            self.metrics.error = None
+            self.metrics.provider_queue_time = None
+            self.metrics.provider_input_time = None
+            self.metrics.provider_output_time = None
+            self.metrics.provider_total_time = None
+            self.metrics.output = None
+            self.metrics.ttr = None
+            self.metrics.ttft = None
+            self.metrics.tps = None
+            self.metrics.input_tokens = None
+            self.metrics.output_tokens = None
+            self.metrics.total_time = None
             if response.ok:
                 if chunk_gen:
                     self.metrics.output_tokens = 0
