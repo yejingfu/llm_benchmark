@@ -19,6 +19,14 @@
             "api_key": ""
         },
         {
+            "name": "lepton",
+            "enable": false,
+            "doc": "https://www.lepton.ai/docs",
+            "endpoint": "https://{model}.lepton.run/api/v1",
+            "model-names": ["mistral-7b"],
+            "api_key": ""
+        },
+        {
             "name": "deepinfra",
             "enable": false,
             "doc": "https://deepinfra.com/models",

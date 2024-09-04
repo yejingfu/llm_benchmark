@@ -33,10 +33,11 @@ The result of our work is Llama 3: a herd of three multilingual language models 
 We are publicly releasing all three Llama 3 models under an updated version of the Llama 3 Community License; see https://llama.meta.com.
 """
 
+ENABLE_TRACE = False
 DEFAULT_PROMPTS = [PROMPT_SUMARIZE_1000]
 DEFAULT_MAX_TOKENS = 1000
 DEFAULT_NUM_REQUESTS = 200
-DEFAULT_PARALLEL = [10, 20, 30]
+DEFAULT_PARALLEL = [5, 10, 20, 30]
 
 class TestElement:
     def __init__(self, name: str, model: str, endpoint: str, api_key: str):
@@ -98,7 +99,10 @@ class LlmTraceConfig(aiohttp.TraceConfig):
 async def run_tests(element: TestElement, num_requests: int, dump: str):
     # construct context
     connector = aiohttp.TCPConnector(force_close=False)
-    trace_configs = [LlmTraceConfig()]
+    if ENABLE_TRACE:
+        trace_configs = [LlmTraceConfig()]
+    else:
+        trace_configs = None
     timeout = aiohttp.ClientTimeout(total=3600*30)
     args = LlmInputArgs(model=element.model_name, max_tokens=DEFAULT_MAX_TOKENS, api_key=element.api_key, base_url=element.endpoint)
     func = llm_request.openai_chat
@@ -166,7 +170,10 @@ def main(args: argparse.Namespace):
             ep = p["endpoint"]
             ak = p["api_key"]
             for n in model_names:
-                element = TestElement(name, n, ep, ak)
+                new_ep = ep
+                if "{model}" in ep:
+                    new_ep = ep.replace("{model}", n)
+                element = TestElement(name, n, new_ep, ak)
                 if args.filter is None or args.filter.lower() in element.display_name.lower():
                     elements.append(element)
     if len(elements) == 0:
