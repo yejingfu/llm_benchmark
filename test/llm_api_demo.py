@@ -113,6 +113,8 @@ async def async_request_openai_completions(
         #payload["max_tokens"] = 30
 
         headers = {"User-Agent": "LLM API Client"}
+        #headers["accept"] = "application/json"
+        #headers["content-type"] = "application/json"
         if api_key is not None and api_key != "":
             headers["Authorization"] = "Bearer " + api_key
 
@@ -310,11 +312,11 @@ def main(args):
             async def _run_requests_in_batch(num):
                 tasks: List[asyncio.Task] = []
                 for _ in range(num):
-                    tasks.append(asyncio.create_task(async_request_openai_completions(action, input, print_progress = print_chunck)))
+                    tasks.append(asyncio.create_task(async_request_openai_completions(action, input, api_key=args.api_key, print_progress=print_chunck)))
                 await asyncio.gather(*tasks)
             asyncio.run(_run_requests_in_batch(args.repeat))
         else:
-            result = asyncio.run(async_request_openai_completions(action, input, print_progress = print_chunck))
+            result = asyncio.run(async_request_openai_completions(action, input, api_key=args.api_key, print_progress=print_chunck))
         end_time = time.time()
         #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
         print(f"\n Time elapsed: {end_time - start_time} seconds.")
