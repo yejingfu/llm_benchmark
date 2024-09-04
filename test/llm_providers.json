@@ -1,0 +1,94 @@
+{
+    "name": "llm-benchmark-providers",
+    "description": "The detialed informations about LLM providers",
+    "providers": [
+        {
+            "name": "ppinfer_local",
+            "enable": true,
+            "doc": "",
+            "endpoint": "http://localhost:18011/v1",
+            "model-names": ["llama31-8b-fp8"],
+            "api_key": ""
+        },
+        {
+            "name": "siliconflow",
+            "enable": false,
+            "doc": "https://docs.siliconflow.cn/docs",
+            "endpoint": "https://api.siliconflow.cn/v1",
+            "model-names": ["deepseek-ai/DeepSeek-V2-Chat"],
+            "api_key": ""
+        },
+        {
+            "name": "deepinfra",
+            "enable": false,
+            "doc": "https://deepinfra.com/models",
+            "endpoint": "https://api.deepinfra.com/v1/openai",
+            "model-names": ["meta-llama/Meta-Llama-3.1-8B-Instruct"],
+            "api_key": ""
+        },
+        {
+            "name": "databricks",
+            "enable": false,
+            "doc": "https://docs.databricks.com/en/machine-learning/foundation-models/supported-models.html",
+            "endpoint": "https://adb-1558081827343359.19.azuredatabricks.net/serving-endpoints",
+            "model-names": [],
+            "api_key": ""
+        },
+        {
+            "name": "fireworks",
+            "enable": false,
+            "doc": "https://fireworks.ai/models",
+            "endpoint": "https://api.fireworks.ai/inference/v1",
+            "model-names": [],
+            "api_key": ""
+        },
+        {
+            "name": "together",
+            "enable": false,
+            "doc": "https://docs.together.ai/docs/inference-models",
+            "endpoint": "https://api.together.xyz/v1",
+            "model-names": [],
+            "api_key": ""
+        },
+        {
+            "name": "groq",
+            "enable": false,
+            "doc": "https://console.groq.com/docs/models",
+            "endpoint": "https://api.groq.com/openai/v1",
+            "model-names": [],
+            "api_key": ""
+        },
+        {
+            "name": "cerebras",
+            "enable": false,
+            "doc": "https://docs.cerebras.ai/en/latest/wsc/Model-zoo/MZ-overview.html#list-of-models",
+            "endpoint": "https://api.cerebras.ai/v1",
+            "model-names": ["llama3.1-8b"],
+            "api_key": ""
+        },
+        {
+            "name": "nvidia",
+            "enable": false,
+            "doc": "https://build.nvidia.com/explore/discover",
+            "endpoint": "https://integrate.api.nvidia.com/v1",
+            "model-names": [],
+            "api_key": ""
+        },
+        {
+            "name": "octo",
+            "enable": false,
+            "doc": "https://octo.ai/docs/getting-started/inference-models#serverless-endpoints",
+            "endpoint": "https://text.octoai.run/v1",
+            "model-names": [],
+            "api_key": ""
+        },
+        {
+            "name": "perplexity",
+            "enable": false,
+            "doc": "https://docs.perplexity.ai/docs/model-cards",
+            "endpoint": "https://api.perplexity.ai",
+            "model-names": [],
+            "api_key": ""
+        }
+    ]
+}
