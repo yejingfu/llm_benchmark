@@ -20,7 +20,7 @@ import llm_request
 
 PROMPT_DEF = "Please instroduce Shanghai China to a foreign tourist in Englisth."
 PROMPT_SUMARIZE_1000 = """
-Summarize the document below into a single informative sentence, and based on the below content write a detailed instroduction:
+Summarize the document below into a single informative sentence, and based on the below content write a detailed instroduction in at least 1000 words:
 ---
 Foundation models are general models of language, vision, speech, and/or other modalities that are designed to support a large variety of AI tasks. They form the basis of many modern AI systems.
 The development of modern foundation models consists of two main stages: (1) a pre-training stage in which the model is trained at massive scale using straightforward tasks such as next-word prediction or captioning and (2) a post-training stage in which the model is tuned to follow instructions, align with human preferences, and improve specific capabilities (for example, coding and reasoning).
@@ -182,7 +182,7 @@ def main(args: argparse.Namespace):
     tasks = []
     for e in elements:
         if e.model_name is not None and e.endpoint is not None:
-            asyncio.run(run_tests(e, DEFAULT_NUM_REQUESTS, args.dump_file))
+            asyncio.run(run_tests(e, args.num_requests, args.dump_file))
     elapsed = time.perf_counter() - time_start
     logger.info(f"DONE in {elapsed:.3f} seconds")
 
@@ -191,6 +191,8 @@ if __name__ == "__main__":
     parser.add_argument("--providers", type=str, help="The json file to contain provider list. If not set, read from llm_providers.json")
     parser.add_argument("--filter", type=str, help="The key words to filter out providers")
     parser.add_argument("--dump-file", type=str, help="Append the test results to the file")
+    parser.add_argument("--num-requests", type=int, default=DEFAULT_NUM_REQUESTS, help=f"The total requests for each epoch testing, default is {DEFAULT_NUM_REQUESTS}")
+    #parser.add_argument("--req-rate", type=int, default=0, help="The number of requests per seconds, the default rate is 0 which means send requests imediately")
     args = parser.parse_args()
     main(args)
 
