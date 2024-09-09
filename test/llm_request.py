@@ -90,6 +90,7 @@ class ApiContext:
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     peft: Optional[str] = None
+    user_data: Optional[Any] = None
 
     def __init__(self, session, index, name, func, args, prompt, files, tools):
         self.session = session
@@ -212,7 +213,7 @@ def make_openai_url_and_headers(ctx: ApiContext, path: str):
         headers = make_headers(api_key=api_key)
         url += f"/openai/deployments/{ctx.model.replace('.', '')}{path}?api-version={AZURE_OPENAI_API_VERSION}"
     else:
-        api_key = ctx.api_key if ctx.base_url else get_api_key(ctx, "OPENAI_API_KEY")
+        api_key = ctx.api_key if ctx.api_key else get_api_key(ctx, "OPENAI_API_KEY")
         headers = make_headers(auth_token=api_key)
         url += path
     return url, headers
