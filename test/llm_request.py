@@ -147,6 +147,8 @@ class ApiContext:
                             on_token(self, "")
                     else:
                         self.metrics.error = "No tokens received"
+                else:
+                    self.metrics.error = "No tokens received2"
             else:
                 text = await response.text()
                 self.metrics.error = f"{response.status} {response.reason} {text}"
@@ -163,9 +165,9 @@ class ApiContext:
             self.metrics.ttft = MAX_TTFT
             self.metrics.tps = 0.0
             self.metrics.total_time = MAX_TOTAL_TIME
+            print(f"{self.metrics.error}")
         if response:
             await response.release()
-
 
 async def post(
     ctx: ApiContext,
@@ -175,9 +177,11 @@ async def post(
     make_chunk_gen: Optional[Callable[[aiohttp.ClientResponse], TokenGenerator]] = None,
 ):
     response = await ctx.session.post(url, headers=headers, data=json.dumps(data))
-    chunk_gen = make_chunk_gen(ctx, response) if make_chunk_gen else None
+    if make_chunk_gen:
+        chunk_gen = make_chunk_gen(ctx, response)
+    else:
+        chunk_gen = None
     return response, chunk_gen
-
 
 def get_api_key(ctx: ApiContext, env_var: str) -> str:
     if ctx.api_key:
