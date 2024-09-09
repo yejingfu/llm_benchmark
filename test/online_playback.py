@@ -134,13 +134,13 @@ async def _openai_chat_completions(ctx: llm_request.ApiContext, path: str = "/ch
 async def _openai_completions(ctx: llm_request.ApiContext, path: str = "/completions"):
     pass
 
-async def send_requests_batch(args: argparse.Namespace, requests: List[LlmInputArgs]):
+async def send_requests_batch(args: argparse.Namespace, req_list: List[LlmInputArgs]):
     timeout = aiohttp.ClientTimeout(total=3600*30)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3600*30), connector=aiohttp.TCPConnector(force_close=False)) as session:
         contexts = []
-        for i in range(len(requests)):
-            req = requsts[i]
-            func = _openai_chat_completions if req.api_type == ChatCompletion else _openai_completions
+        for i in range(len(req_list)):
+            req = req_list[i]
+            func = _openai_chat_completions if req.api_type == ApiType.ChatCompletion else _openai_completions
             contexts.append(llm_request.ApiContext(session, i, req.model, func, req, "", [], []))
         num_ctx = len(contexts)
         parallel = args.parallel
@@ -160,7 +160,7 @@ def main(args):
         raise RuntimeError(f"Invalid or not supported model: {args.model_name}, serving models: {models_str}")
     if models_str:
         logger.info(f"Supported models: {models_str}")
-    requests: List[LlmInputArgs] = []
+    req_list : List[LlmInputArgs] = []
     if os.path.exists(args.requests_file) and os.path.isfile(args.requests_file):
         logger.info(f"Loading request data from {args.requests_file}")
         with open(args.requests_file, "r") as f:
@@ -190,16 +190,16 @@ def main(args):
                             req_input.strict = False
                             req_input.api_key = args.api_key
                             req_input.base_url = args.endpoint
-                            requests.append(req_input)
+                            req_list.append(req_input)
             except StopIteration:
                 logger.info("EOS of file")
-    if len(requests) == 0:
+    if len(req_list) == 0:
         logger.error("No valid requests are loaded")
         return
-    logger.info(f"{len(requests)} requests are loaded")
+    logger.info(f"{len(req_list)} requests are loaded")
 
     time_start = time.perf_counter()
-    asyncio.run(send_requests_batch(requests))
+    asyncio.run(send_requests_batch(args, req_list))
     elapsed = time.perf_counter() - time_start
     logger.info(f"DONE in {elapsed:.3f} seconds")
 
