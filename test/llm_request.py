@@ -123,7 +123,6 @@ class ApiContext:
             self.metrics.provider_output_time = None
             self.metrics.provider_total_time = None
             self.metrics.output = None
-            self.metrics.ttr = None
             self.metrics.ttft = None
             self.metrics.tps = None
             self.metrics.input_tokens = None

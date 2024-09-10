@@ -32,6 +32,7 @@ class ApiType(enum.Enum):
 @dataclass
 class LlmInputArgs:
     api_type: ApiType
+    timestamp: str = ""
     raw_model: str = ""
     model: str = ""
     prompt: str = ""
@@ -149,10 +150,10 @@ async def _openai_post_message(ctx: llm_request.ApiContext):
     data = llm_request.make_openai_chat_body(ctx, **kwargs)
     return await llm_request.post(ctx, url, headers, data, _response_chunk_gen)
 
-async def send_requests_batch(args: argparse.Namespace, req_list: List[LlmInputArgs]):
+async def send_requests_batch(args: argparse.Namespace, req_list: List[LlmInputArgs]) -> List[llm_request.ApiContext]:
+    contexts = []
     timeout = aiohttp.ClientTimeout(total=3600*30)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3600*30), connector=aiohttp.TCPConnector(force_close=False)) as session:
-        contexts = []
         for i in range(len(req_list)):
             req = req_list[i]
             ctx = llm_request.ApiContext(session, i, req.raw_model, _openai_post_message, req, "", [], [])
@@ -161,11 +162,31 @@ async def send_requests_batch(args: argparse.Namespace, req_list: List[LlmInputA
         num_ctx = len(contexts)
         parallel = args.parallel
         logger.info(f"Start requesting in parallel: {parallel}, total {num_ctx}")
-        time_start = time.perf_counter()
         for i in range(0, num_ctx, parallel):
             tasks = [asyncio.create_task(ctx.run(_on_token)) for ctx in contexts[i : i + parallel]]
             await asyncio.gather(*tasks)
-        elapsed = time.perf_counter() - time_start
+    return contexts
+
+def save_result_csv(file_name:str, contexts: List[llm_request.ApiContext]):
+    file = open(file_name, mode="w", newline="", encoding="utf-8")
+    writer = csv.writer(file)
+    header = ["index","ttft","tps","input-len","output-len","total-time","p-queue-time","p-input-time","p-output-time","p-total-time","model","timestamp"]
+    writer.writerow(header)
+    bad_metrics = []
+    for i in range(len(contexts)):
+        m = contexts[i].metrics
+        in_args = contexts[i].user_data
+        if not m.error:
+            writer.writerow([i, round(m.ttft,2), round(m.tps), m.input_tokens, m.output_tokens, round(m.total_time or 0,2), round(m.provider_queue_time or 0,2), round(m.provider_input_time or 0,2), round(m.provider_output_time or 0,2), round(m.provider_total_time or 0,2), m.model, in_args.timestamp])
+        else:
+            bad_metrics.append(in_args.timestamp + ", " + m.error)
+    file.close()
+    if len(bad_metrics) > 0:
+        with open(file_name + ".err", "w") as f:
+            for m in bad_metrics:
+                f.write(m+"\n")
+
+    logger.info(f"got good metrics: {len(contexts) - len(bad_metrics)}, bad metrics: {len(bad_metrics)}")
 
 def main(args):
     if not args.endpoint:
@@ -197,7 +218,7 @@ def main(args):
                     for i in range(args.max_num_requests):
                         line = next(reader)
                         raw_req = None
-                        ts = line["@timestamp"] if "@timestamp" in line else None
+                        ts = line["@timestamp"] if "@timestamp" in line else ""
                         req_input = None
                         t = ApiType.UnknownType
                         b = None
@@ -212,10 +233,11 @@ def main(args):
                             b = line["request_body"]
 
                         if t == ApiType.UnknownType:
-                            logger.warning(f"[{i}]: unknown api type: {parts[0][8:]}, body: {b}, at {line['@timestamp']}")
-                        #else:
-                        elif t == ApiType.ChatCompletion:
+                            logger.warning(f"[{i}]: invalid request: {parts[0][8:]}, body: {parts[2][0:100]}..., at {line['@timestamp']}")
+                        else:
+                        #elif t == ApiType.ChatCompletion:
                             req_input = new_input_args(t, b)
+                            req_input.timestamp = ts
                             req_input.model = args.model_name
                             req_input.strict = False
                             req_input.api_key = args.api_key
@@ -229,7 +251,7 @@ def main(args):
     logger.info(f"{len(req_list)} requests are loaded")
 
     time_start = time.perf_counter()
-    asyncio.run(send_requests_batch(args, req_list))
+    contexts = asyncio.run(send_requests_batch(args, req_list))
     elapsed = time.perf_counter() - time_start
     logger.info(f"DONE in {elapsed:.3f} seconds")
     if PRINT_RESPONSE > 0:
@@ -237,8 +259,12 @@ def main(args):
         logger.info(f"Print the generated content about the first {num} requests")
         for i in range(num):
             logger.info(f"[{i}] type: {req_list[i].api_type}, model: {req_list[i].raw_model}, generated: {req_list[i].generated}")
+    if args.dump is not None:
+        save_result_csv(args.dump, contexts)
 
 if __name__ == "__main__":
+    ## example:
+    ### python test/online_playback.py --endpoint http://localhost:18011/v1 --model-name llama31-8b --requests-file test/data/microsoftwizardlm-2-8x22b-errors.csv --max-num-requests 10 --parallel 5 --dump result_playback.csv
     parser = argparse.ArgumentParser(description="Read raw client requests and call LLM server one by one")
     parser.add_argument("--endpoint", type=str, help="The host URL of the llm openapi server.", default="http://localhost:8000/v1")
     parser.add_argument("--model-name", type=str, help="The model name for completions.")
@@ -246,6 +272,7 @@ if __name__ == "__main__":
     parser.add_argument("--requests-file", type=str, help="The cvs file path which contains original client requests data")
     parser.add_argument("--max-num-requests", type=int, default=100, help="Load maximum requests from the file, default is 100")
     parser.add_argument("--parallel", type=int, default=10, help="The num of requests sent in parallel, default is 10")
+    parser.add_argument("--dump", type=str, help="The file to save the output data")
 
     args = parser.parse_args()
     main(args)
