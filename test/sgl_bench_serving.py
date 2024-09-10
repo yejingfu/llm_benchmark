@@ -30,14 +30,10 @@ import aiohttp
 import numpy as np
 import requests
 from tqdm.asyncio import tqdm
-from transformers import (
-    AutoTokenizer,
-    PreTrainedTokenizer,
-    PreTrainedTokenizerBase,
-    PreTrainedTokenizerFast,
-)
+from transformers import (AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerBase, PreTrainedTokenizerFast,)
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
+PRINT_REQUESTS = 0
 
 global args
 
@@ -222,53 +218,11 @@ async def async_request_openai_completions(
     return output
 
 
-async def async_request_gserver(
-    request_func_input: RequestFuncInput,
-    pbar: Optional[tqdm] = None,
-) -> RequestFuncOutput:
-    raise NotImplementedError()
-
-
-def get_model(pretrained_model_name_or_path: str) -> str:
-    if os.getenv("SGLANG_USE_MODELSCOPE", "False").lower() == "true":
-        import huggingface_hub.constants
-        from modelscope import snapshot_download
-
-        model_path = snapshot_download(
-            model_id=pretrained_model_name_or_path,
-            local_files_only=huggingface_hub.constants.HF_HUB_OFFLINE,
-            ignore_file_pattern=[".*.pt", ".*.safetensors", ".*.bin"],
-        )
-
-        return model_path
-    return pretrained_model_name_or_path
-
-
-def get_tokenizer(
-    pretrained_model_name_or_path: str,
-) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast]:
-    if pretrained_model_name_or_path.endswith(
-        ".json"
-    ) or pretrained_model_name_or_path.endswith(".model"):
-        from sglang.srt.hf_transformers_utils import get_tokenizer
-
-        return get_tokenizer(pretrained_model_name_or_path)
-
-    if pretrained_model_name_or_path is not None and not os.path.exists(
-        pretrained_model_name_or_path
-    ):
-        pretrained_model_name_or_path = get_model(pretrained_model_name_or_path)
-    return AutoTokenizer.from_pretrained(
-        pretrained_model_name_or_path, trust_remote_code=True
-    )
-
-
 ASYNC_REQUEST_FUNCS = {
     "sglang": async_request_openai_completions,
     "vllm": async_request_openai_completions,
     "lmdeploy": async_request_openai_completions,
     "trt": async_request_trt_llm,
-    "gserver": async_request_gserver,
 }
 
 
@@ -296,177 +250,6 @@ class BenchmarkMetrics:
     p99_itl_ms: float
     mean_e2e_latency_ms: float
     median_e2e_latency_ms: float
-
-
-default_sharegpt_path = "ShareGPT_V3_unfiltered_cleaned_split.json"
-
-
-def download_sharegpt_dataset(path):
-    url = "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
-
-    print(f"Downloading dataset from {url}")
-    try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-
-        total_size = int(response.headers.get("content-length", 0))
-        block_size = 8192
-
-        with open(path, "wb") as f, tqdm(
-            desc="Downloading",
-            total=total_size,
-            unit="iB",
-            unit_scale=True,
-            unit_divisor=1024,
-        ) as progress_bar:
-            for data in response.iter_content(block_size):
-                size = f.write(data)
-                progress_bar.update(size)
-
-        print(f"Dataset downloaded and saved to {path}")
-    except requests.RequestException as e:
-        raise Exception(f"Failed to download dataset: {e}")
-
-
-def sample_sharegpt_requests(
-    dataset_path: str,
-    num_requests: int,
-    tokenizer: PreTrainedTokenizerBase,
-    fixed_output_len: Optional[int] = None,
-) -> List[Tuple[str, int, int]]:
-    if fixed_output_len is not None and fixed_output_len < 4:
-        raise ValueError("output_len too small")
-
-    # Download sharegpt if necessary
-    if not os.path.isfile(dataset_path) and not os.path.isfile(default_sharegpt_path):
-        download_sharegpt_dataset(default_sharegpt_path)
-        dataset_path = default_sharegpt_path
-    else:
-        dataset_path = (
-            dataset_path if os.path.isfile(dataset_path) else default_sharegpt_path
-        )
-
-    # Load the dataset.
-    with open(dataset_path) as f:
-        dataset = json.load(f)
-    # Filter out the conversations with less than 2 turns.
-    dataset = [data for data in dataset if len(data["conversations"]) >= 2]
-    # Only keep the first two turns of each conversation.
-    dataset = [
-        (data["conversations"][0]["value"], data["conversations"][1]["value"])
-        for data in dataset
-    ]
-
-    # Shuffle the dataset.
-    random.shuffle(dataset)
-
-    # Filter out sequences that are too long or too short
-    filtered_dataset: List[Tuple[str, int, int]] = []
-    for i in range(len(dataset)):
-        if len(filtered_dataset) == num_requests:
-            break
-
-        # Tokenize the prompts and completions.
-        prompt = dataset[i][0]
-        prompt_token_ids = tokenizer.encode(prompt)
-        completion = dataset[i][1]
-        completion_token_ids = tokenizer.encode(completion)
-        prompt_len = len(prompt_token_ids)
-        output_len = (
-            len(completion_token_ids) if fixed_output_len is None else fixed_output_len
-        )
-        if prompt_len < 4 or output_len < 4:
-            # Prune too short sequences.
-            continue
-        if prompt_len > 1024 or (
-            prompt_len + output_len > 2048 and fixed_output_len is None
-        ):
-            # Prune too long sequences.
-            continue
-        filtered_dataset.append((prompt, prompt_len, output_len))
-
-    return filtered_dataset
-
-
-def sample_random_requests(
-    input_len: int,
-    output_len: int,
-    num_prompts: int,
-    range_ratio: float,
-    tokenizer: PreTrainedTokenizerBase,
-    dataset_path: str,
-) -> List[Tuple[str, int, int]]:
-
-    input_lens = np.random.randint(
-        max(int(input_len * range_ratio), 1),
-        input_len + 1,
-        size=num_prompts,
-    )
-    output_lens = np.random.randint(
-        int(output_len * range_ratio),
-        output_len + 1,
-        size=num_prompts,
-    )
-
-    if True:
-        # Sample token ids from ShareGPT and repeat/truncate them to satisfy the input_lens
-
-        # Download sharegpt if necessary
-        if not os.path.isfile(dataset_path) and not os.path.isfile(
-            default_sharegpt_path
-        ):
-            download_sharegpt_dataset(default_sharegpt_path)
-            dataset_path = default_sharegpt_path
-        else:
-            dataset_path = (
-                dataset_path if os.path.isfile(dataset_path) else default_sharegpt_path
-            )
-
-        # Load the dataset.
-        with open(dataset_path) as f:
-            dataset = json.load(f)
-        # Filter out the conversations with less than 2 turns.
-        dataset = [data for data in dataset if len(data["conversations"]) >= 2]
-        # Only keep the first two turns of each conversation.
-        dataset = [
-            (data["conversations"][0]["value"], data["conversations"][1]["value"])
-            for data in dataset
-        ]
-
-        # Shuffle the dataset.
-        random.shuffle(dataset)
-
-        # Filter out sequences that are too long or too short
-        input_requests: List[Tuple[str, int, int]] = []
-        for i in range(num_prompts):
-            # Tokenize the prompts and completions.
-            prompt = dataset[i][0]
-            prompt_token_ids = tokenizer.encode(prompt)
-            prompt_len = len(prompt_token_ids)
-
-            if prompt_len > input_lens[i]:
-                input_ids = prompt_token_ids[: input_lens[i]]
-            else:
-                ratio = (input_lens[i] + prompt_len - 1) // prompt_len
-                input_ids = (prompt_token_ids * ratio)[: input_lens[i]]
-            prompt = tokenizer.decode(input_ids)
-            input_requests.append((prompt, int(input_lens[i]), int(output_lens[i])))
-    else:
-        # Sample token ids from random integers. This can cause some NaN issues.
-        offsets = np.random.randint(0, tokenizer.vocab_size, size=num_prompts)
-        input_requests = []
-        for i in range(num_prompts):
-            prompt = tokenizer.decode(
-                [
-                    (offsets[i] + i + j) % tokenizer.vocab_size
-                    for j in range(input_lens[i])
-                ]
-            )
-            input_requests.append((prompt, int(input_lens[i]), int(output_lens[i])))
-
-    print(f"#Input tokens: {np.sum(input_lens)}")
-    print(f"#Output tokens: {np.sum(output_lens)}")
-    return input_requests
 
 
 async def get_request(
@@ -558,117 +341,57 @@ def calculate_metrics(
     return metrics, output_lens
 
 
-async def benchmark(
-    backend: str,
-    api_url: str,
-    model_id: str,
-    tokenizer: PreTrainedTokenizerBase,
-    input_requests: List[Tuple[str, int, int]],
-    request_rate: float,
-    disable_tqdm: bool,
-    extra_request_body: Dict[str, Any],
-):
+async def benchmark(backend: str, api_url: str, model_id: str, tokenizer: PreTrainedTokenizerBase, input_requests: List[Tuple[str, int, int]], rate: float, disable_tqdm: bool, extra: Dict[str, Any],):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
     else:
         raise ValueError(f"Unknown backend: {backend}")
-
+    if len(input_requests) == 0:
+        raise ValueError("Empty input requests")
     print("Starting initial single prompt test run...")
-    test_prompt, test_prompt_len, test_output_len = input_requests[0]
-    test_input = RequestFuncInput(
-        model=model_id,
-        prompt=test_prompt,
-        api_url=api_url,
-        prompt_len=test_prompt_len,
-        output_len=test_output_len,
-        extra_request_body=extra_request_body,
-    )
+    prompt, prompt_len, output_len = input_requests[0]
+    test_input = RequestFuncInput(model=model_id, prompt=prompt, api_url=api_url, prompt_len=prompt_len, output_len=output_len, extra_request_body=extra,)
     test_output = await request_func(request_func_input=test_input)
     if not test_output.success:
-        raise ValueError(
-            "Initial test run failed - Please make sure benchmark arguments "
-            f"are correctly specified. Error: {test_output.error}"
-        )
+        raise ValueError(f"Initial test run failed - Please make sure benchmark arguments are correctly specified. Error: {test_output.error}")
     else:
-        print("Initial test run completed. Starting main benchmark run...")
+        print(f"Initial test run completed. Starting main benchmark run with rate: {rate}")
 
     pbar = None if disable_tqdm else tqdm(total=len(input_requests))
 
     benchmark_start_time = time.perf_counter()
     tasks: List[asyncio.Task] = []
-    async for request in get_request(input_requests, request_rate):
-        prompt, prompt_len, output_len = request
-        request_func_input = RequestFuncInput(
-            model=model_id,
-            prompt=prompt,
-            api_url=api_url,
-            prompt_len=prompt_len,
-            output_len=output_len,
-            extra_request_body=extra_request_body,
-        )
-        tasks.append(
-            asyncio.create_task(
-                request_func(request_func_input=request_func_input, pbar=pbar)
-            )
-        )
+    async for req in get_request(input_requests, rate):
+        prompt, prompt_len, output_len = req
+        request_func_input = RequestFuncInput(model=model_id, prompt=prompt, api_url=api_url, prompt_len=prompt_len, output_len=output_len, extra_request_body=extra,)
+        tasks.append(asyncio.create_task(request_func(request_func_input=request_func_input, pbar=pbar)))
     outputs: List[RequestFuncOutput] = await asyncio.gather(*tasks)
-
     if pbar is not None:
         pbar.close()
 
     benchmark_duration = time.perf_counter() - benchmark_start_time
 
-    metrics, output_lens = calculate_metrics(
-        input_requests=input_requests,
-        outputs=outputs,
-        dur_s=benchmark_duration,
-        tokenizer=tokenizer,
-        backend=backend,
-    )
+    metrics, output_lens = calculate_metrics(input_requests=input_requests, outputs=outputs, dur_s=benchmark_duration, tokenizer=tokenizer, backend=backend,)
 
     print("\n{s:{c}^{n}}".format(s=" Serving Benchmark Result ", n=50, c="="))
     print("{:<40} {:<10}".format("Backend:", backend))
-    print("{:<40} {:<10}".format("Traffic request rate:", request_rate))
+    print("{:<40} {:<10}".format("Traffic request rate:", rate))
     print("{:<40} {:<10}".format("Successful requests:", metrics.completed))
     print("{:<40} {:<10.2f}".format("Benchmark duration (s):", benchmark_duration))
     print("{:<40} {:<10}".format("Total input tokens:", metrics.total_input))
     print("{:<40} {:<10}".format("Total generated tokens:", metrics.total_output))
-    print(
-        "{:<40} {:<10}".format(
-            "Total generated tokens (retokenized):", metrics.total_output_retokenized
-        )
-    )
-    print(
-        "{:<40} {:<10.2f}".format(
-            "Request throughput (req/s):", metrics.request_throughput
-        )
-    )
-    print(
-        "{:<40} {:<10.2f}".format(
-            "Input token throughput (tok/s):", metrics.input_throughput
-        )
-    )
-    print(
-        "{:<40} {:<10.2f}".format(
-            "Output token throughput (tok/s):", metrics.output_throughput
-        )
-    )
+    print("{:<40} {:<10}".format("Total generated tokens (retokenized):", metrics.total_output_retokenized))
+    print("{:<40} {:<10.2f}".format("Request throughput (req/s):", metrics.request_throughput))
+    print("{:<40} {:<10.2f}".format("Input token throughput (tok/s):", metrics.input_throughput))
+    print("{:<40} {:<10.2f}".format("Output token throughput (tok/s):", metrics.output_throughput))
     print("{s:{c}^{n}}".format(s="End-to-End Latency", n=50, c="-"))
-    print(
-        "{:<40} {:<10.2f}".format("Mean E2E Latency (ms):", metrics.mean_e2e_latency_ms)
-    )
-    print(
-        "{:<40} {:<10.2f}".format(
-            "Median E2E Latency (ms):", metrics.median_e2e_latency_ms
-        )
-    )
+    print("{:<40} {:<10.2f}".format("Mean E2E Latency (ms):", metrics.mean_e2e_latency_ms))
+    print("{:<40} {:<10.2f}".format("Median E2E Latency (ms):", metrics.median_e2e_latency_ms))
     print("{s:{c}^{n}}".format(s="Time to First Token", n=50, c="-"))
     print("{:<40} {:<10.2f}".format("Mean TTFT (ms):", metrics.mean_ttft_ms))
     print("{:<40} {:<10.2f}".format("Median TTFT (ms):", metrics.median_ttft_ms))
     print("{:<40} {:<10.2f}".format("P99 TTFT (ms):", metrics.p99_ttft_ms))
-    print(
-        "{s:{c}^{n}}".format(s="Time per Output Token (excl. 1st token)", n=50, c="-")
-    )
+    print("{s:{c}^{n}}".format(s="Time per Output Token (excl. 1st token)", n=50, c="-"))
     print("{:<40} {:<10.2f}".format("Mean TPOT (ms):", metrics.mean_tpot_ms))
     print("{:<40} {:<10.2f}".format("Median TPOT (ms):", metrics.median_tpot_ms))
     print("{:<40} {:<10.2f}".format("P99 TPOT (ms):", metrics.p99_tpot_ms))
@@ -678,78 +401,55 @@ async def benchmark(
     print("{:<40} {:<10.2f}".format("P99 ITL (ms):", metrics.p99_itl_ms))
     print("=" * 50)
 
+    result = None
     if (
         metrics.median_ttft_ms is not None
         and metrics.mean_itl_ms is not None
         and metrics.output_throughput is not None
     ):
         result = {
+            "timestampe": datetime.now().strftime("%m%d:%H-%M"),
             "backend": args.backend,
-            "dataset_name": args.dataset_name,
-            "request_rate": request_rate,
+            "request_rate": rate,
+            "num_prompts": args.num_prompts,
             "total_input_tokens": metrics.total_input,
             "total_output_tokens": metrics.total_output,
             "total_output_tokens_retokenized": metrics.total_output_retokenized,
+            "request_throughput": metrics.request_throughput,
+            "input_throughput": metrics.input_throughput,
+            "output_throughput": metrics.output_throughput,
             "mean_e2e_latency_ms": metrics.mean_e2e_latency_ms,
             "median_e2e_latency_ms": metrics.median_e2e_latency_ms,
+            "mean_ttft_ms": metrics.mean_ttft_ms,
             "median_ttft_ms": metrics.median_ttft_ms,
+            "std_ttft_ms": metrics.std_ttft_ms,
+            "p99_ttft_ms": metrics.p99_ttft_ms,
+            "mean_tpot_ms": metrics.mean_tpot_ms,
+            "median_tpot_ms": metrics.median_tpot_ms,
+            "std_tpot_ms": metrics.std_tpot_ms,
+            "p99_tpot_ms": metrics.p99_tpot_ms,
+            "mean_itl_ms": metrics.mean_itl_ms,
             "median_itl_ms": metrics.median_itl_ms,
-            "output_throughput": metrics.output_throughput,
-            "sharegpt_output_len": args.sharegpt_output_len,
-            "random_input_len": args.random_input_len,
-            "random_output_len": args.random_output_len,
-            "random_range_ratio": args.random_range_ratio,
+            "std_itl_ms": metrics.std_itl_ms,
+            "p99_itl_ms": metrics.p99_itl_ms,
             "duration": benchmark_duration,
             "completed": metrics.completed,
+            "input_lens": [output.prompt_len for output in outputs],
+            "output_lens": output_lens,
+            "ttfts": [output.ttft for output in outputs],
+            "itls": [output.itl for output in outputs],
+            #"generated_texts": [output.generated_text for output in outputs],
+            "errors": [output.error for output in outputs],
         }
     else:
-        print(f"Error running benchmark for request rate: {request_rate}")
+        print(f"Error running benchmark for request rate: {rate}")
         print("-" * 30)
 
-    # Determine output file name
-    if args.output_file:
-        output_file_name = args.output_file
-    else:
-        now = datetime.now().strftime("%m%d")
-        if args.dataset_name == "random":
-            output_file_name = f"{args.backend}_{now}_{args.num_prompts}_{args.random_input_len}_{args.random_output_len}.jsonl"
-        else:
-            output_file_name = f"{args.backend}_{now}_{args.num_prompts}_sharegpt.jsonl"
-
     # Append results to a JSONL file
-    with open(output_file_name, "a") as file:
-        file.write(json.dumps(result) + "\n")
-
-    result = {
-        "duration": benchmark_duration,
-        "completed": metrics.completed,
-        "total_input_tokens": metrics.total_input,
-        "total_output_tokens": metrics.total_output,
-        "total_output_tokens_retokenized": metrics.total_output_retokenized,
-        "request_throughput": metrics.request_throughput,
-        "input_throughput": metrics.input_throughput,
-        "output_throughput": metrics.output_throughput,
-        "mean_ttft_ms": metrics.mean_ttft_ms,
-        "median_ttft_ms": metrics.median_ttft_ms,
-        "std_ttft_ms": metrics.std_ttft_ms,
-        "p99_ttft_ms": metrics.p99_ttft_ms,
-        "mean_tpot_ms": metrics.mean_tpot_ms,
-        "median_tpot_ms": metrics.median_tpot_ms,
-        "std_tpot_ms": metrics.std_tpot_ms,
-        "p99_tpot_ms": metrics.p99_tpot_ms,
-        "mean_itl_ms": metrics.mean_itl_ms,
-        "median_itl_ms": metrics.median_itl_ms,
-        "std_itl_ms": metrics.std_itl_ms,
-        "p99_itl_ms": metrics.p99_itl_ms,
-        "input_lens": [output.prompt_len for output in outputs],
-        "output_lens": output_lens,
-        "ttfts": [output.ttft for output in outputs],
-        "itls": [output.itl for output in outputs],
-        "generated_texts": [output.generated_text for output in outputs],
-        "errors": [output.error for output in outputs],
-        "mean_e2e_latency_ms": metrics.mean_e2e_latency_ms,
-        "median_e2e_latency_ms": metrics.median_e2e_latency_ms,
-    }
+    if args.output_file and result is not None:
+        print(f"Append the resolts into file {args.output_file}")
+        with open(args.output_file, "a") as file:
+            file.write(json.dumps(result) + "\n")
     return result
 
 
@@ -779,43 +479,18 @@ def run_benchmark(args_: argparse.Namespace):
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    extra_request_body = {}
+    extra = {}
     if args.extra_request_body:
-        extra_request_body = json.loads(args.extra_request_body)
+        extra = json.loads(args.extra_request_body)
 
-    # Set url
-    if args.port is None:
-        args.port = {
-            "sglang": 30000,
-            "lmdeploy": 23333,
-            "vllm": 8000,
-            "trt": 8000,
-            "gserver": 9988,
-        }.get(args.backend, 30000)
-
-    api_url = (
-        f"{args.base_url}/v1/completions"
-        if args.base_url
-        else f"http://{args.host}:{args.port}/v1/completions"
-    )
-    model_url = (
-        f"{args.base_url}/v1/models"
-        if args.base_url
-        else f"http://{args.host}:{args.port}/v1/models"
-    )
-
-    if args.backend == "trt":
-        api_url = (
-            f"{args.base_url}/v2/models/ensemble/generate_stream"
-            if args.base_url
-            else f"http://{args.host}:{args.port}/v2/models/ensemble/generate_stream"
-        )
+    api_url = args.endpoint + "/completions"
+    model_url = args.endpoint + "/models"
+    backend = args.backend
+    if backend == "trt":
+        api_url = args.endpoint + "/models/ensemble/generate_stream"
         if args.model is None:
             print("Please provide a model using `--model` when using `trt` backend.")
             sys.exit(1)
-    elif args.backend == "gserver":
-        api_url = args.base_url if args.base_url else f"{args.host}:{args.port}"
-        args.model = args.model or "default"
 
     # Get model name
     if args.model is None:
@@ -823,6 +498,7 @@ def run_benchmark(args_: argparse.Namespace):
             response = requests.get(model_url)
             model_list = response.json().get("data", [])
             args.model = model_list[0]["id"] if model_list else None
+            print(f"Got model name from server: {args.model}")
         except Exception as e:
             print(f"Failed to fetch model from {model_url}. Error: {e}")
             print(
@@ -834,71 +510,47 @@ def run_benchmark(args_: argparse.Namespace):
         print("No model specified or found. Please provide a model using `--model`.")
         sys.exit(1)
 
-    if not check_chat_template(args.model):
-        print(
-            "\nWARNING It is recommended to use the `Chat` or `Instruct` model for benchmarking.\n"
-            "Because when the tokenizer counts the output tokens, if there is gibberish, it might count incorrectly.\n"
-        )
-
     print(f"{args}\n")
+    if args.tokenizer is None:
+        print("Please input tokenizer path by --tokenizer")
+        exit(1)
 
     # Read dataset
-    backend = args.backend
-    model_id = args.model
-    tokenizer_id = args.tokenizer if args.tokenizer is not None else args.model
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    dataset_path = os.path.dirname(__file__) + "/stability_samples.json"
+    input_requests = []
+    if os.path.exists(dataset_path):
+        with open(dataset_path, "r") as f:
+            json_data= json.load(f)
+            if "kind" in json_data and json_data["kind"] == "ppio-internal":
+                for data in json_data["data"]:
+                    if len(input_requests) >= args.num_prompts:
+                        break
+                    input_requests.append((data["prompt"], data["prompt_len"], data["output_len"] if args.fixed_output_len is None else args.fixed_output_len))
+    if len(input_requests) == 0:
+        raise RuntimeError(f"No data loaded from {dataset_path}")
+    random.shuffle(input_requests)
+    i = 0
+    while args.num_prompts > len(input_requests):
+        input_requests.append(input_requests[i])
+        i += 1
+    print(f"Load {len(input_requests)} requests")
+    if PRINT_REQUESTS > 0:
+        for i in range(min(len(input_requests), PRINT_REQUESTS)):
+            req = input_requests[i]
+            print(f"Request[{i}] prompt len: {len(tokenizer.encode(req[0]))}, {req[1]}, {req[2]}, {req[0][0:100]}")
 
-    tokenizer = get_tokenizer(tokenizer_id)
-
-    if args.dataset_name == "sharegpt":
-        input_requests = sample_sharegpt_requests(
-            dataset_path=args.dataset_path,
-            num_requests=args.num_prompts,
-            tokenizer=tokenizer,
-            fixed_output_len=args.sharegpt_output_len,
-        )
-    elif args.dataset_name == "random":
-        input_requests = sample_random_requests(
-            input_len=args.random_input_len,
-            output_len=args.random_output_len,
-            num_prompts=args.num_prompts,
-            range_ratio=args.random_range_ratio,
-            tokenizer=tokenizer,
-            dataset_path=args.dataset_path,
-        )
-    else:
-        raise ValueError(f"Unknown dataset: {args.dataset_name}")
-
-    if not args.multi:
-        return asyncio.run(
-            benchmark(
-                backend=backend,
-                api_url=api_url,
-                model_id=model_id,
-                tokenizer=tokenizer,
-                input_requests=input_requests,
-                request_rate=args.request_rate,
-                disable_tqdm=args.disable_tqdm,
-                extra_request_body=extra_request_body,
-            )
-        )
-    else:
-        # Benchmark multiple rps. TODO: use a fixed duration to compute num_prompts
-        request_rates = parse_request_rate_range(args.request_rate_range)
-
-        for rate in request_rates:
+    # Run benchmark
+    if args.request_rate_range is not None and len(args.request_rate_range.split(",")) == 3:
+        start, stop, step = map(int, args.request_rate_range.split(","))
+        requests_rates = list(range(start, stop, step))
+        for rate in requests_rates:
             asyncio.run(
-                benchmark(
-                    backend=backend,
-                    api_url=api_url,
-                    model_id=model_id,
-                    tokenizer=tokenizer,
-                    input_requests=input_requests,
-                    request_rate=rate,
-                    disable_tqdm=args.disable_tqdm,
-                    extra_request_body=extra_request_body,
-                )
-            )
-
+                benchmark(backend=backend, api_url=api_url, model_id=args.model, tokenizer=tokenizer, input_requests=input_requests, rate=rate, disable_tqdm=args.disable_tqdm, extra=extra,))
+    else:
+        asyncio.run(
+            benchmark(backend=backend, api_url=api_url, model_id=args.model, tokenizer=tokenizer, input_requests=input_requests, rate=args.request_rate, disable_tqdm=args.disable_tqdm, extra=extra,))
+    print("DONE")
 
 def set_ulimit(target_soft_limit=65535):
     resource_type = resource.RLIMIT_NOFILE
@@ -910,122 +562,23 @@ def set_ulimit(target_soft_limit=65535):
         except ValueError as e:
             print(f"Fail to set RLIMIT_NOFILE: {e}")
 
-
 if __name__ == "__main__":
     parser = ArgumentParser(description="Benchmark the online serving throughput.")
-    parser.add_argument(
-        "--backend",
-        type=str,
-        choices=list(ASYNC_REQUEST_FUNCS.keys()),
-        default="sglang",
-        help="Must specify a backend, depending on the LLM Inference Engine.",
-    )
-    parser.add_argument(
-        "--base-url",
-        type=str,
-        default=None,
-        help="Server or API base url if not using http host and port.",
-    )
-    parser.add_argument(
-        "--host", type=str, default="0.0.0.0", help="Default host is 0.0.0.0."
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        help="If not set, the default port is configured according to its default value for different LLM Inference Engines.",
-    )
-    parser.add_argument(
-        "--dataset-name",
-        type=str,
-        default="sharegpt",
-        choices=["sharegpt", "random"],
-        help="Name of the dataset to benchmark on.",
-    )
-    parser.add_argument(
-        "--dataset-path", type=str, default="", help="Path to the dataset."
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        help="Name or path of the model. If not set, the default model will request /v1/models for conf.",
-    )
-    parser.add_argument(
-        "--tokenizer",
-        type=str,
-        help="Name or path of the tokenizer. If not set, using the model conf.",
-    )
-    parser.add_argument(
-        "--num-prompts",
-        type=int,
-        default=1000,
-        help="Number of prompts to process. Default is 1000.",
-    )
-    parser.add_argument(
-        "--sharegpt-output-len",
-        type=int,
-        default=None,
-        help="Output length for each request. Overrides the output length from the ShareGPT dataset.",
-    )
-    parser.add_argument(
-        "--random-input-len",
-        type=int,
-        default=1024,
-        help="Number of input tokens per request, used only for random dataset.",
-    )
-    parser.add_argument(
-        "--random-output-len",
-        type=int,
-        default=128,
-        help="Number of output tokens per request, used only for random dataset.",
-    )
-    parser.add_argument(
-        "--random-range-ratio",
-        type=float,
-        default=0.0,
-        help="Range of sampled ratio of input/output length, "
-        "used only for random dataset.",
-    )
-    parser.add_argument(
-        "--request-rate",
-        type=float,
-        default=float("inf"),
-        help="Number of requests per second. If this is inf, then all the requests are sent at time 0. "
-        "Otherwise, we use Poisson process to synthesize the request arrival times. Default is inf.",
-    )
-    parser.add_argument("--seed", type=int, default=1, help="The random seed.")
-    parser.add_argument(
-        "--multi",
-        action="store_true",
-        help="Use request rate range rather than single value.",
-    )
-    parser.add_argument(
-        "--request-rate-range",
-        type=str,
-        default="2,34,2",
-        help="Range of request rates in the format start,stop,step. Default is 2,34,2. It also supports a list of request rates, requiring the parameters to not equal three.",
-    )
+    parser.add_argument("--backend", type=str, choices=list(ASYNC_REQUEST_FUNCS.keys()), default="vllm", help="Must specify a backend, depending on the LLM Inference Engine.",)
+    parser.add_argument("--endpoint", type=str, help="Server or API base url if not using http host and port.",)
+    parser.add_argument("--model", type=str, help="Name of the model. If not set, the default model will request /v1/models for conf.",)
+    parser.add_argument("--tokenizer", type=str, help="Name or path of the tokenizer. If not set, using the model conf.",)
+    parser.add_argument("--num-prompts", type=int, default=1000, help="Number of prompts to process. Default is 1000.",)
+    #parser.add_argument("--fixed-input-len", type=int, default=None, help="Input length for each request. Overrides the output length from the dataset.",)
+    parser.add_argument("--fixed-output-len", type=int, default=None, help="Output length for each request. Overrides the output length from the dataset.",)
+    parser.add_argument("--request-rate", type=float, default=float("inf"), help="Number of requests per second. If this is inf, then all the requests are sent at time 0. Otherwise, we use Poisson process to synthesize the request arrival times. Default is inf.",)
+    parser.add_argument("--request-rate-range", type=str, default=None, help="Range of request rates in the format start,stop,step. for example: 2,34,2. It also supports a list of request rates, requiring the parameters to not equal three.",)
+    parser.add_argument("--seed", type=int, default=1, help="The random seed. Default is 1")
     parser.add_argument("--output-file", type=str, help="Output JSONL file name.")
-    parser.add_argument(
-        "--disable-tqdm",
-        action="store_true",
-        help="Specify to disable tqdm progress bar.",
-    )
-    parser.add_argument(
-        "--disable-stream",
-        action="store_true",
-        help="Disable streaming mode.",
-    )
-    parser.add_argument(
-        "--disable-ignore-eos",
-        action="store_true",
-        help="Disable ignoring EOS.",
-    )
-    parser.add_argument(
-        "--extra-request-body",
-        metavar='{"key1": "value1", "key2": "value2"}',
-        type=str,
-        help="Append given JSON object to the request payload. You can use this to specify"
-        "additional generate params like sampling params.",
-    )
+    parser.add_argument("--disable-tqdm", action="store_true", help="Specify to disable tqdm progress bar.",)
+    parser.add_argument("--disable-stream", action="store_true", help="Disable streaming mode.",)
+    parser.add_argument("--disable-ignore-eos", action="store_true", help="Disable ignoring EOS.",)
+    parser.add_argument("--extra-request-body", metavar='{"key1": "value1", "key2": "value2"}', type=str, help="Append given JSON object to the request payload. You can use this to specify additional generate params like sampling params.",)
     args = parser.parse_args()
     run_benchmark(args)
+
