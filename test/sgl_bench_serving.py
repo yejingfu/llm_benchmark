@@ -1,16 +1,3 @@
-# Adapted from https://github.com/vllm-project/vllm/blob/6366efc67b0aedd2c1721c14385370e50b297fb3/benchmarks/backend_request_func.py
-# Adapted from https://github.com/vllm-project/vllm/blob/6366efc67b0aedd2c1721c14385370e50b297fb3/benchmarks/benchmark_serving.py
-
-"""
-Benchmark online serving.
-
-Usage:
-python3 -m sglang.bench_serving --backend sglang --num-prompt 10
-
-python3 -m sglang.bench_serving --backend sglang --dataset-name random --num-prompts 3000 --random-input 1024 --random-output 1024 --random-range-ratio 0.5
-python3 -m sglang.bench_serving --backend sglang --dataset-name random --request-rate-range 1,2,4,8,16,32 --random-input 4096 --random-output 1024 --random-range-ratio 0.125 --multi
-"""
-
 import argparse
 import asyncio
 import json
@@ -33,7 +20,9 @@ from tqdm.asyncio import tqdm
 from transformers import (AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerBase, PreTrainedTokenizerFast,)
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
-PRINT_REQUESTS = 0
+PRINT_REQUESTS = 100
+DEF_MAX_PROMPT_LEN = 1024
+DEF_MAX_TOTAL_LEN = 2048
 
 global args
 
@@ -469,6 +458,21 @@ def check_chat_template(model_path):
         print(f"Fail to load tokenizer config with error={e}")
         return False
 
+def download_sharegpt_dataset(path):
+    url = "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
+    print(f"Downloading dataset from {url}")
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        total_size = int(response.headers.get("content-length", 0))
+        block_size = 8192
+        with open(path, "wb") as f, tqdm(desc="Downloading", total=total_size, unit="iB", unit_scale=True, unit_divisor=1024,) as progress_bar:
+            for data in response.iter_content(block_size):
+                size = f.write(data)
+                progress_bar.update(size)
+        print(f"Dataset downloaded and saved to {path}")
+    except requests.RequestException as e:
+        raise Exception(f"Failed to download dataset: {e}")
 
 def run_benchmark(args_: argparse.Namespace):
     global args
@@ -514,19 +518,65 @@ def run_benchmark(args_: argparse.Namespace):
     if args.tokenizer is None:
         print("Please input tokenizer path by --tokenizer")
         exit(1)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
 
     # Read dataset
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-    dataset_path = os.path.dirname(__file__) + "/stability_samples.json"
+    if args.dataset not in ["sharegpt", "ppio"]:
+        raise ValueError(f"Invalid dataset argument: {args.dataset}")
+    if args.dataset == "ppio":
+        dataset_path = os.path.dirname(__file__) + "/stability_samples.json"
+    elif args.dataset == "sharegpt":
+        dataset_path = os.path.dirname(__file__) + "/ShareGPT_V3_unfiltered_cleaned_split.json"
+        if not os.path.exists(dataset_path):
+            download_sharegpt_dataset(dataset_path)
     input_requests = []
+    print(f"Load test data from {dataset_path}")
     if os.path.exists(dataset_path):
         with open(dataset_path, "r") as f:
             json_data= json.load(f)
-            if "kind" in json_data and json_data["kind"] == "ppio-internal":
-                for data in json_data["data"]:
+            if args.dataset == "ppio" and "kind" in json_data and json_data["kind"] == "ppio-internal":
+                for i in reversed(range(len(json_data["data"]))):
+                    data = json_data["data"][i]
                     if len(input_requests) >= args.num_prompts:
                         break
-                    input_requests.append((data["prompt"], data["prompt_len"], data["output_len"] if args.fixed_output_len is None else args.fixed_output_len))
+                    if args.fixed_input_len:
+                        ids = tokenizer.encode(data["prompt"])
+                        if args.fixed_input_len < data["prompt_len"]:
+                            ids = ids[:args.fixed_input_len]
+                        else:
+                            ratio = (args.fixed_input_len + data["prompt_len"] - 1) // data["prompt_len"]
+                            ids = (ids * ratio)[: args.fixed_input_len]
+                        prompt = tokenizer.decode(ids)
+                        input_requests.append((prompt, args.fixed_input_len, data["output_len"] if args.fixed_output_len is None else args.fixed_output_len))
+                    elif data["prompt_len"] < 1024 and (args.fixed_output_len is None or data["prompt_len"] + data["output_len"] < 2048):
+                        input_requests.append((data["prompt"], data["prompt_len"], data["output_len"] if args.fixed_output_len is None else args.fixed_output_len))
+            elif args.dataset == "sharegpt":
+                dataset = [data for data in json_data if len(data["conversations"]) >= 2]
+                dataset = [(data["conversations"][0]["value"], data["conversations"][1]["value"]) for data in dataset]
+                random.shuffle(dataset)
+                for i in range(len(dataset)):
+                    if len(input_requests) >= args.num_prompts:
+                        break
+                    prompt = dataset[i][0]
+                    prompt_token_ids = tokenizer.encode(prompt)
+                    completion = dataset[i][1]
+                    completion_token_ids = tokenizer.encode(completion)
+                    prompt_len = len(prompt_token_ids)
+                    output_len = (len(completion_token_ids) if args.fixed_output_len is None else args.fixed_output_len)
+                    if prompt_len < 4 or output_len < 4:
+                        continue
+                    if args.fixed_input_len:
+                        if args.fixed_input_len < prompt_len:
+                            ids = prompt_token_ids[:args.fixed_input_len]
+                        else:
+                            ratio = (args.fixed_input_len + prompt_len - 1) // prompt_len
+                            ids = (ids * ratio)[:args.fixed_input_len]
+                        prompt = tokenizer.decode(ids)
+                        input_requests.append((prompt, args.fixed_input_len, output_len))
+                    else:
+                        if prompt_len > 1024 or (prompt_len + output_len > 2048 and args.fixed_output_len is None):
+                            continue
+                        input_requests.append((prompt, prompt_len, output_len))
     if len(input_requests) == 0:
         raise RuntimeError(f"No data loaded from {dataset_path}")
     random.shuffle(input_requests)
@@ -568,8 +618,9 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", type=str, help="Server or API base url if not using http host and port.",)
     parser.add_argument("--model", type=str, help="Name of the model. If not set, the default model will request /v1/models for conf.",)
     parser.add_argument("--tokenizer", type=str, help="Name or path of the tokenizer. If not set, using the model conf.",)
+    parser.add_argument("--dataset", type=str, choices=list(["sharegpt", "ppio"]), default="ppio", help="The preset dataset name, can be: 'ppio', 'sharegpt'",)
     parser.add_argument("--num-prompts", type=int, default=1000, help="Number of prompts to process. Default is 1000.",)
-    #parser.add_argument("--fixed-input-len", type=int, default=None, help="Input length for each request. Overrides the output length from the dataset.",)
+    parser.add_argument("--fixed-input-len", type=int, default=None, help="Input length for each request. Overrides the output length from the dataset.",)
     parser.add_argument("--fixed-output-len", type=int, default=None, help="Output length for each request. Overrides the output length from the dataset.",)
     parser.add_argument("--request-rate", type=float, default=float("inf"), help="Number of requests per second. If this is inf, then all the requests are sent at time 0. Otherwise, we use Poisson process to synthesize the request arrival times. Default is inf.",)
     parser.add_argument("--request-rate-range", type=str, default=None, help="Range of request rates in the format start,stop,step. for example: 2,34,2. It also supports a list of request rates, requiring the parameters to not equal three.",)
@@ -580,5 +631,6 @@ if __name__ == "__main__":
     parser.add_argument("--disable-ignore-eos", action="store_true", help="Disable ignoring EOS.",)
     parser.add_argument("--extra-request-body", metavar='{"key1": "value1", "key2": "value2"}', type=str, help="Append given JSON object to the request payload. You can use this to specify additional generate params like sampling params.",)
     args = parser.parse_args()
+
     run_benchmark(args)
 
