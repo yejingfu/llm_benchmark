@@ -17,6 +17,7 @@ from tqdm.asyncio import tqdm
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import AsyncGenerator, List, Optional, Tuple
+from transformers import AutoTokenizer
 
 import llm_request
 
@@ -257,10 +258,19 @@ def main(args):
         return
     logger.info(f"{len(req_list)} requests are loaded")
 
+    ## print the promt len and max_tokens
+    if args.tokenizer:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+        for i in range(len(req_list)):
+            prompt_len = len(tokenizer.encode(req_list[i].prompt)) if req_list[i].prompt else 0
+            prompt_len += sum([len(tokenizer.encode(f"{x}")) for x in req_list[i].messages])
+            logger.info(f"input/output length[{i}]: {prompt_len}, {req_list[i].max_tokens}")
+
     time_start = time.perf_counter()
     contexts = asyncio.run(send_requests_batch(args, req_list))
     elapsed = time.perf_counter() - time_start
     logger.info(f"DONE in {elapsed:.3f} seconds")
+
     ## print statistics
     ttft = []
     tps = []
@@ -306,6 +316,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Read raw client requests and call LLM server one by one")
     parser.add_argument("--endpoint", type=str, help="The host URL of the llm openapi server.", default="http://localhost:8000/v1")
     parser.add_argument("--model-name", type=str, help="The model name for completions, if not set, call endpoint to query.")
+    parser.add_argument("--tokenizer", type=str, help="Optional, if set, use it to calualate the input lengh")
     parser.add_argument("--api-key", type=str, help="The secret key to connect server.")
     parser.add_argument("--requests-file", type=str, help="The cvs file path which contains original client requests data")
     parser.add_argument("--max-num-requests", type=int, default=100, help="Load maximum requests from the file, default is 100")
