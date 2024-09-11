@@ -154,6 +154,7 @@ async def send_requests_batch(args: argparse.Namespace, req_list: List[LlmInputA
     contexts = []
     timeout = aiohttp.ClientTimeout(total=3600*30)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3600*30), connector=aiohttp.TCPConnector(force_close=False)) as session:
+        pbar = tqdm(total=len(req_list))
         for i in range(len(req_list)):
             req = req_list[i]
             ctx = llm_request.ApiContext(session, i, req.raw_model, _openai_post_message, req, "", [], [])
@@ -165,6 +166,9 @@ async def send_requests_batch(args: argparse.Namespace, req_list: List[LlmInputA
         for i in range(0, num_ctx, parallel):
             tasks = [asyncio.create_task(ctx.run(_on_token)) for ctx in contexts[i : i + parallel]]
             await asyncio.gather(*tasks)
+            pbar.update(parallel)
+        pbar.close()
+
     return contexts
 
 def save_result_csv(file_name:str, contexts: List[llm_request.ApiContext]):
