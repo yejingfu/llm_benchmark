@@ -4,6 +4,7 @@ import base64
 import dataclasses
 import json
 import mimetypes
+import enum
 import os
 import re
 import time
@@ -19,6 +20,10 @@ ApiResult = Tuple[aiohttp.ClientResponse, TokenGenerator]
 AZURE_OPENAI_API_VERSION = "2024-02-15-preview"
 MAX_TTFT = 9.99
 MAX_TOTAL_TIME = 99.99
+
+class RequestPhase(enum.Enum):
+    Begin = enum.auto()
+    End = enum.auto()
 
 
 @dataclasses.dataclass
@@ -115,7 +120,7 @@ class ApiContext:
         try:
             start_time = time.time()
             first_token_time = None
-            response, chunk_gen = await self.func(self)
+            response, chunk_gen = await self.func(self, RequestPhase.Begin, None)
             self.metrics.ttr = time.time() - start_time
             self.metrics.error = None
             self.metrics.provider_queue_time = None
@@ -165,6 +170,7 @@ class ApiContext:
             self.metrics.tps = 0.0
             self.metrics.total_time = MAX_TOTAL_TIME
             print(f"[ERROR]: {self.metrics.error}")
+        await self.func(self, RequestPhase.End, response)
         if response:
             await response.release()
 

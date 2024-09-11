@@ -23,6 +23,8 @@ import llm_request
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 PRINT_RESPONSE = 0
+PRINT_VERBOSE = True
+PRINT_STREAM_TOKEN = False
 
 class ApiType(enum.Enum):
     ChatCompletion = enum.auto()
@@ -33,7 +35,8 @@ class ApiType(enum.Enum):
 
 @dataclass
 class LlmInputArgs:
-    api_type: ApiType
+    api_type: ApiType = ApiType.UnknownType
+    index: int = 0
     timestamp: str = ""
     raw_model: str = ""
     model: str = ""
@@ -45,6 +48,7 @@ class LlmInputArgs:
     top_k: Optional[int] = None
     stream: Optional[bool] =  None
     max_tokens: Optional[int] = None
+    prompt_len: int = 0
     ## compatible to llm_request.ApiContext
     strict: Optional[bool] = None
     detail: Optional[str] = None
@@ -93,6 +97,8 @@ def exec_get_method(url, api_key) -> str:
 
 def _on_token(ctx: llm_request.ApiContext, token: str):
     ctx.user_data.generated += token
+    if PRINT_STREAM_TOKEN:
+        print(token, end="", flush=True)
 
 async def _response_chunk_gen(ctx: llm_request.ApiContext, response) -> llm_request.TokenGenerator:
     async for line in response.content:
@@ -123,11 +129,18 @@ async def _response_chunk_gen(ctx: llm_request.ApiContext, response) -> llm_requ
         if result is not None:
             yield result
 
-async def _openai_post_message(ctx: llm_request.ApiContext):
+async def _openai_post_message(ctx: llm_request.ApiContext, phase: llm_request.RequestPhase, response = None):
+    args = ctx.user_data
+    if phase == llm_request.RequestPhase.End:
+        if PRINT_VERBOSE:
+            logger.info(f"Finish request[{args.index}]: {args.api_type}, {args.prompt_len} / {args.max_tokens}")
+        return None
+
+    if PRINT_VERBOSE:
+        logger.info(f"Send request[{args.index}]: {args.api_type}, {args.prompt_len} / {args.max_tokens}")
     headers = llm_request.make_headers(auth_token=ctx.api_key)
     kwargs = {"stream_options": {"include_usage": True}}
     url = ctx.base_url
-    args = ctx.user_data
     if args is not None:
         if args.api_type == ApiType.ChatCompletion:
             url = url + "/chat/completions"
@@ -205,6 +218,15 @@ def main(args):
     logger.info(f"Model name: {args.model_name}")
     if not args.model_name:
         raise ValueError(f"Invalid model name")
+    if args.parallel is None or args.parallel == 0:
+        args.parallel = 10
+    logger.info(f"Parallel: {args.parallel}")
+    req_ids = None
+    if args.requests_ids:
+        req_ids = args.requests_ids.split(",")
+        req_ids = [int(x) for x in req_ids]
+        if len(req_ids) == 0:
+            req_ids = None
     req_list : List[LlmInputArgs] = []
     def _get_api_type(s:str) -> ApiType:
         t = ApiType.UnknownType
@@ -223,6 +245,7 @@ def main(args):
             try:
                 reader = csv.DictReader(f)
                 if args.max_num_requests > 0:
+                    req_idx = 0
                     for i in range(args.max_num_requests):
                         line = next(reader)
                         raw_req = None
@@ -244,13 +267,19 @@ def main(args):
                             logger.warning(f"[{i}]: invalid request: {parts[0][8:]}, body: {parts[2][0:100]}..., at {line['@timestamp']}")
                         else:
                         #elif t == ApiType.ChatCompletion:
-                            req_input = new_input_args(t, b)
-                            req_input.timestamp = ts
-                            req_input.model = args.model_name
-                            req_input.strict = False
-                            req_input.api_key = args.api_key
-                            req_input.base_url = args.endpoint
-                            req_list.append(req_input)
+                            if req_ids is None or req_idx in req_ids:
+                                # workaround
+                                if PRINT_STREAM_TOKEN and req_ids is not None:
+                                    print(f"Request[{req_ids}]: {b}")
+                                req_input = new_input_args(t, b)
+                                req_input.index = req_idx
+                                req_input.timestamp = ts
+                                req_input.model = args.model_name
+                                req_input.strict = False
+                                req_input.api_key = args.api_key
+                                req_input.base_url = args.endpoint
+                                req_list.append(req_input)
+                            req_idx += 1
             except StopIteration:
                 logger.info("EOS of file")
     if len(req_list) == 0:
@@ -264,7 +293,9 @@ def main(args):
         for i in range(len(req_list)):
             prompt_len = len(tokenizer.encode(req_list[i].prompt)) if req_list[i].prompt else 0
             prompt_len += sum([len(tokenizer.encode(f"{x}")) for x in req_list[i].messages])
-            logger.info(f"input/output length[{i}]: {prompt_len}, {req_list[i].max_tokens}")
+            req_list[i].prompt_len = prompt_len
+            if PRINT_VERBOSE:
+                logger.info(f"input/output length[{i}]: {prompt_len}, {req_list[i].max_tokens}")
 
     time_start = time.perf_counter()
     contexts = asyncio.run(send_requests_batch(args, req_list))
@@ -319,6 +350,7 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer", type=str, help="Optional, if set, use it to calualate the input lengh")
     parser.add_argument("--api-key", type=str, help="The secret key to connect server.")
     parser.add_argument("--requests-file", type=str, help="The cvs file path which contains original client requests data")
+    parser.add_argument("--requests-ids", type=str, help="Pick the specific requests from file for testing, start from 0, seperated by comma")
     parser.add_argument("--max-num-requests", type=int, default=100, help="Load maximum requests from the file, default is 100")
     parser.add_argument("--parallel", type=int, default=10, help="The num of requests sent in parallel, default is 10")
     parser.add_argument("--dump", type=str, help="The file to save the output data")
