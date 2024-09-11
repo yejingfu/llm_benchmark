@@ -164,7 +164,7 @@ class ApiContext:
             self.metrics.ttft = MAX_TTFT
             self.metrics.tps = 0.0
             self.metrics.total_time = MAX_TOTAL_TIME
-            print(f"{self.metrics.error}")
+            print(f"[ERROR]: {self.metrics.error}")
         if response:
             await response.release()
 

@@ -11,6 +11,7 @@ import aiohttp
 import requests
 import enum
 import shlex
+import numpy as np
 from loguru import logger
 from tqdm.asyncio import tqdm
 from dataclasses import dataclass, field
@@ -196,11 +197,13 @@ def main(args):
     if not args.endpoint:
         raise ValueError("Invalid endpoint")
     logger.info(f"LLM serving endpoint: {args.endpoint}")
-    models_str = exec_get_method(args.endpoint + "/models", args.api_key)
-    if not models_str or args.model_name not in models_str:
-        raise RuntimeError(f"Invalid or not supported model: {args.model_name}, serving models: {models_str}")
-    if models_str:
-        logger.info(f"Supported models: {models_str}")
+    if not args.model_name:
+        res = requests.get(args.endpoint + "/models")
+        model_list = res.json().get("data", [])
+        args.model_name = model_list[0]["id"] if model_list else None
+    logger.info(f"Model name: {args.model_name}")
+    if not args.model_name:
+        raise ValueError(f"Invalid model name")
     req_list : List[LlmInputArgs] = []
     def _get_api_type(s:str) -> ApiType:
         t = ApiType.UnknownType
@@ -258,6 +261,37 @@ def main(args):
     contexts = asyncio.run(send_requests_batch(args, req_list))
     elapsed = time.perf_counter() - time_start
     logger.info(f"DONE in {elapsed:.3f} seconds")
+    ## print statistics
+    ttft = []
+    tps = []
+    e2e_latency = []
+    input_len = []
+    output_len = []
+    errors = []
+    for c in contexts:
+        if c.metrics.error:
+            errors.append(c.metrics.error)
+        else:
+            ttft.append(c.metrics.ttft)
+            tps.append(c.metrics.tps)
+            e2e_latency.append(c.metrics.total_time)
+            input_len.append(c.metrics.input_tokens)
+            output_len.append(c.metrics.output_tokens)
+    if len(ttft) > 0:
+        PERCENTILES = [50, 90, 99]
+        ttft_p = [round(float(x), 2) for x in np.percentile(ttft, PERCENTILES)]
+        tps_p = [round(x) for x in np.percentile(tps, PERCENTILES)]
+        e2e_latency_p = [round(float(x), 2) for x in np.percentile(e2e_latency, PERCENTILES)]
+        input_len_p = np.percentile(input_len, PERCENTILES)
+        output_len_p = np.percentile(output_len, PERCENTILES)
+        logger.info(f"TTFT(Median, P90, P99): {ttft_p}")
+        logger.info(f"TPS(Median, P90, P99): {tps_p}")
+        logger.info(f"E2E Latency(Median, P90, P99): {e2e_latency_p}")
+        logger.info(f"input len(Median, P90, P99): {input_len_p}")
+        logger.info(f"output len(Median, P90, P99): {output_len_p}")
+    elif len(errors) > 0:
+        for i in range(len(errors)):
+            logger.warning(f"ERROR[{i}]: {errors[i]}")
     if PRINT_RESPONSE > 0:
         num = min(PRINT_RESPONSE, len(req_list))
         logger.info(f"Print the generated content about the first {num} requests")
@@ -271,7 +305,7 @@ if __name__ == "__main__":
     ### python test/online_playback.py --endpoint http://localhost:18011/v1 --model-name llama31-8b --requests-file test/data/microsoftwizardlm-2-8x22b-errors.csv --max-num-requests 10 --parallel 5 --dump result_playback.csv
     parser = argparse.ArgumentParser(description="Read raw client requests and call LLM server one by one")
     parser.add_argument("--endpoint", type=str, help="The host URL of the llm openapi server.", default="http://localhost:8000/v1")
-    parser.add_argument("--model-name", type=str, help="The model name for completions.")
+    parser.add_argument("--model-name", type=str, help="The model name for completions, if not set, call endpoint to query.")
     parser.add_argument("--api-key", type=str, help="The secret key to connect server.")
     parser.add_argument("--requests-file", type=str, help="The cvs file path which contains original client requests data")
     parser.add_argument("--max-num-requests", type=int, default=100, help="Load maximum requests from the file, default is 100")
