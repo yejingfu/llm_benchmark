@@ -58,7 +58,8 @@ function run() {
             in_len=${request_len[i]}
             out_len=${request_len[i+1]}
             local args2="$args --sampling-policy fixed --fixed-prompt-len $in_len --fixed-output-len $out_len --parallel $parallel"
-            echo "Run python $CUR_DIR/benchmark_client.py $args2"
+            echo "Run: python $CUR_DIR/benchmark_client.py $args2"
+            python $CUR_DIR/benchmark_client.py $args2
         done
     done
 }
