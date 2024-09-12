@@ -3,126 +3,64 @@ PRG_NAME=$(basename "${BASH_SOURCE[0]}")
 CUR_DIR=$(cd `dirname $0`;pwd)
 source $CUR_DIR/../scripts/base.sh
 
-## example
-## launch_benchmark_v2.sh --model-name llama3-8b --tokenizer /models/Meta-Llama-3-8B-Instruct --dataset /models/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json --backend vllm-local
-## launch_benchmark_v2.sh --model-name meta-llama/llama-3-8b-instruct --tokenizer /models/Meta-Llama-3-8B-Instruct --dataset /models/ShareGPT_Vicuna_unfiltered/ShareGPT_V3_unfiltered_cleaned_split.json --backend novita --base-url https://api.novita.ai --api-key xxxxx
 
-BM_PRESET_BACKEND=("vllm" "vllm-local" "trtllm" "novita", "siliconflow")
-BM_BACKEND=
+BM_ENDPOINT=
 BM_API_KEY=
-BM_BASE_URL=
-BM_MODEL_NAME=
 BM_TOKENIZER_PATH=
 BM_DATASET_PATH=
-
-BM_NUM_WARMUP=2
-BM_NUM_BENCHMARK=128
-BM_SAMPLE_POLICY=fixed
-BM_FIXED_INPUT_LEN=1024
-BM_FIXED_OUTPUT_LEN=1024
-BM_MAX_CONCURRENCY=64
 BM_CHAT=0
 BM_ADD_SYS_PROMPT=0
-BM_DISABLE_WARN=0
-BM_DRY_RUN=
-BM_IGNORE_CHECK=0
+BM_NUM_REQUESTS=2000
 
-SAMPLE_POLICIES=("fixed" "nature" "normal")
+parallels=(10 20 30)
+## pair: input-len, output-len
+request_len=(512 512 1024 1024 1800 200)
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
-    LOG INFO "  --dry-run  Print the command without really execute it"
-    LOG INFO "  --model-name(optional) The model name passed to LLM service in API, this is optional for some endpoint(like friendli)"
+    LOG INFO "  --endpoint The LLM server URL, example: http://localhost:18011/v1"
+    LOG INFO "  --api-key (optional) The api key used to call commercial service"
     LOG INFO "  --tokenizer The path to local model folder used for tokenizing prompt or output"
     LOG INFO "  --dataset The path to local dataset used for sampling benchmark requests"
-    LOG INFO "  --backend  The backend: ${BM_PRESET_BACKEND[@]}"
-    LOG INFO "  --base-url The LLM server URL"
-    LOG INFO "  --api-key (optional) The api key used to call commercial service"
     LOG INFO "  --chat (optional) If set, call LLM chat-completions API for testing"
-    LOG INFO "  --num-requests (optional) The total requests send to server for benchmark, default: $BM_NUM_BENCHMARK"
-    LOG INFO "  --sample-policy (optional) Can be 'fixed, nature, normal'"
-    LOG INFO "  --input-len (optional) The fixed input tokens for every request, default: $BM_FIXED_INPUT_LEN"
-    LOG INFO "  --output-len (optional) The fixed output tokens the LLM service should return for every request, default: $BM_FIXED_OUTPUT_LEN"
-    LOG INFO "  --disable-warn (optional) Supress the warning message if set"
-    LOG INFO "  --parallel (optional) The num of requests sent in parallel"
+    LOG INFO "  --num-requests (optional) The total requests send to server for benchmark, default: $BM_NUM_REQUESTS"
     LOG INFO "  --add-sys-prompt (optional) Prepend system prompt prefix, using to test the prefix caching features"
-    LOG INFO "  --ignore-check (optional) Whether check llm server health"
     exit
 }
 
 function run() {
-    local path_prefix="/v1"
-    local extra_args="$BM_DRY_RUN"
-    if [[ ! ${BM_PRESET_BACKEND[@]} =~ $BM_BACKEND ]]; then
-        LOG ERR "The backend should be one of (${BM_PRESET_BACKEND[@]})"
-    fi
-    if [ x"$BM_BACKEND" = x"vllm-local" ]; then
-        if [ x"$BM_BASE_URL" = x"" ]; then
-            BM_BASE_URL="http://127.0.0.1:18002"
-        fi
-        BM_BACKEND="vllm"
-        BM_NUM_WARMUP=16
-    elif [ x"$BM_BACKEND" = x"novita" ]; then
-        path_prefix="/v3/openai"
-    elif [ x"$BM_BACKEND" = x"siliconflow" ]; then
-        extra_args="$extra_args --ignore-check"
-    fi
-    if [ $BM_NUM_WARMUP -gt $BM_NUM_BENCHMARK ]; then
-        BM_NUM_WARMUP=$BM_NUM_BENCHMARK
-    fi
-    if [ x"$BM_BASE_URL" = x"" ]; then
-        LOG ERR "The base-url is not set"
+    if [ x"$BM_ENDPOINT" = x"" ]; then
+        LOG ERR "Please set --endpoint"
     fi
     if [ x"$BM_TOKENIZER_PATH" = x"" ]; then
-        LOG ERR "The tokenizer path is not set"
+        LOG ERR "Please set --tokenizer"
     fi
     if [ x"$BM_DATASET_PATH" = x"" ]; then
-        LOG ERR "The test dataset path is not set, you can git clone https://www.modelscope.cn/datasets/otavia/ShareGPT_Vicuna_unfiltered.git"
+        LOG ERR "Please set --dataset"
     fi
-    if [[ $BM_CHAT -eq 1 ]] && [[ $BM_ADD_SYS_PROMPT -eq 1 ]]; then
-        LOG ERR "The chat api cannot support adding system prompt"
-    fi
-    if [[ ! ${SAMPLE_POLICIES[@]} =~ $BM_SAMPLE_POLICY ]]; then
-        LOG ERR "The --sample-policy should be one of ${SAMPLE_POLICIES[@]}"
-    fi
-
-    local args="--backend $BM_BACKEND --base-url $BM_BASE_URL --endpoint-chat ${path_prefix}/chat/completions --endpoint-completion ${path_prefix}/completions"
+    local args="--endpoint $BM_ENDPOINT --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --num-requests $BM_NUM_REQUESTS"
     if [ x"$BM_API_KEY" != x"" ]; then
         args="$args --api-key $BM_API_KEY"
     fi
-    if [ x"$BM_MODEL_NAME" != x"" ]; then
-        args="$args --model $BM_MODEL_NAME --endpoint-models ${path_prefix}/models"
-
-    fi
-    if [ $BM_IGNORE_CHECK -eq 1 ]; then
-        args="$args --ignore-check"
-    fi
-    args="$args --num-warmup-requests $BM_NUM_WARMUP --num-benchmark-requests $BM_NUM_BENCHMARK --max-concurrent-requests $BM_MAX_CONCURRENCY --stream "
-    args="$args --sampling-policy $BM_SAMPLE_POLICY"
-    if [ "$BM_SAMPLE_POLICY" = "fixed" ]; then
-        args="$args --fixed_prompt_len $BM_FIXED_INPUT_LEN --fixed_output_len $BM_FIXED_OUTPUT_LEN"
-    elif [ "$BM_SAMPLE_POLICY" = "nature" ]; then
-        args="$args --max_prompt_len $BM_FIXED_INPUT_LEN --max_prompt_output_len $BM_FIXED_OUTPUT_LEN"
-    elif [ "$BM_SAMPLE_POLICY" = "normal" ]; then
-        local max_seq_len=$BM_FIXED_INPUT_LEN
-        if [ $BM_FIXED_INPUT_LEN -lt $BM_FIXED_OUTPUT_LEN ]; then
-            max_seq_len=$BM_FIXED_OUTPUT_LEN
-        fi
-        args="$args --prompt_len_mean $BM_FIXED_INPUT_LEN --output_len_mean $BM_FIXED_OUTPUT_LEN --max_seq_len $(expr $max_seq_len \* 2) "
-    fi
-
     if [ $BM_CHAT -eq 1 ]; then
         args="$args --api-kind chat"
     fi
-    args="$args --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --log-file benchmark_${BM_BACKEND}.log $extra_args"
+    if [ $BM_ADD_SYS_PROMPT -eq 1 ]; then
+        args="$args --add-system-prompt"
+    fi
+    dump_file=$(date "+%Y-%m-%d-%H%M%S.txt")
+    args="$args --log-file $dump_file"
+    echo "Save result to $dump_file"
 
-    if [ $BM_DISABLE_WARN -eq 0 ]; then
-        args="$args --warn-dismatch-output-len"
-    fi
-    if [ x"$BM_DRY_RUN" = x"--dry-run" ]; then
-        LOG INFO "[RUN]: python $CUR_DIR/benchmark_client.py $args"
-    fi
-    python $CUR_DIR/benchmark_client.py $args
+    num_req_len=${#request_len[@]}
+    for i in $(seq 0 2 $((num_req_len-2)));do
+        for parallel in ${parallels[@]};do
+            in_len=${request_len[i]}
+            out_len=${request_len[i+1]}
+            local args2="$args --sampling-policy fixed --fixed-prompt-len $in_len --fixed-output-len $out_len --parallel $parallel"
+            echo "Run python $CUR_DIR/benchmark_client.py $args2"
+        done
+    done
 }
 
 function main() {
@@ -131,13 +69,14 @@ function main() {
     fi
     while [ "$#" -gt 0 ]; do
     case "$1" in
-    --dry-run)
+    --endpoint)
         shift
-        BM_DRY_RUN="--dry-run"
+        BM_ENDPOINT="$1"
+        shift
         ;;
-    --model-name)
+    --api-key)
         shift
-        BM_MODEL_NAME=$1
+        BM_API_KEY=$1
         shift
         ;;
     --tokenizer)
@@ -150,44 +89,9 @@ function main() {
         BM_DATASET_PATH="$1"
         shift
         ;;
-    --backend)
-        shift
-        BM_BACKEND="$1"
-        shift
-        ;;
-    --base-url)
-        shift
-        BM_BASE_URL="$1"
-        shift
-        ;;
-    --api-key)
-        shift
-        BM_API_KEY=$1
-        shift
-        ;;
     --num-requests)
         shift
-        BM_NUM_BENCHMARK=$1
-        shift
-        ;;
-    --sample-policy)
-        shift
-        BM_SAMPLE_POLICY=$1
-        shift
-        ;;
-    --input-len)
-        shift
-        BM_FIXED_INPUT_LEN=$1
-        shift
-        ;;
-    --output-len)
-        shift
-        BM_FIXED_OUTPUT_LEN=$1
-        shift
-        ;;
-    --parallel)
-        shift
-        BM_MAX_CONCURRENCY=$1
+        BM_NUM_REQUESTS=$1
         shift
         ;;
     --chat)
@@ -197,14 +101,6 @@ function main() {
     --add-sys-prompt)
         shift
         BM_ADD_SYS_PROMPT=1
-        ;;
-    --disable-warn)
-        shift
-        BM_DISABLE_WARN=1
-        ;;
-    --ignore-check)
-        shift
-        BM_IGNORE_CHECK=1
         ;;
     *)
         usage

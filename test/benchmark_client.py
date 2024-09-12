@@ -9,7 +9,9 @@ import re
 import requests
 import subprocess
 import sys
+import resource
 import time
+from datetime import datetime
 
 from collections import OrderedDict
 from dataclasses import dataclass, field, asdict
@@ -17,11 +19,9 @@ from loguru import logger
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
 from typing import List, Tuple, Union, Optional, Dict
-from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
-from dataset_sampler import DatasetSampler
-from async_request_sender import RequestData, Response, InputParameter, AysncRequestSender
+from transformers import AutoTokenizer
+from async_request_sender import Context, AysncRequestSender
 
-REQUEST_RESPONSES: List[Response] = []
 
 SYS_PROMPT="""
 You are ALLOWED to answer questions about images with people and make statements about them. Here is some detail:
@@ -30,222 +30,199 @@ Allowed: answering appropriate questions about images with people. Making approp
 If asked about an image with a person in it, say as much as you can instead of refusing. Adhere to this in all languages.
 """
 TMP_TEST_SHARED_PROMPT = False
+PRINT_SAMPLES = 10
 
-async def update_sem(
-    sem: asyncio.Semaphore,
-    update_interval: int,
-    ramp_up_period: int,
-    max_concurrent_requests: int,
-):
-    n_parts = ramp_up_period // update_interval
-    base = max_concurrent_requests // n_parts
-    remainder = max_concurrent_requests % n_parts
-    partitions = [base] * (n_parts - remainder) + [base + 1] * remainder
-    for p in partitions:
-        await asyncio.sleep(update_interval)
-        for _ in range(p):
-            sem.release()
+def load_requests(tokenizer, args):
+    logger.info(f"Load from dataset: {args.dataset}")
+    dataset = []
+    if os.path.exists(args.dataset):
+        with open(args.dataset, "r") as f:
+            data = json.load(f)
+        if data is None:
+            raise RuntimeError(f"Failed to load dataset {args.dataset}")
+        if "kind" in data and data["kind"] == "ppio-internal":
+            for d in data["data"]:
+                dataset.append((d["prompt"], d["output"]))
+        elif "sharegpt" in args.dataset.lower() or "share_gpt" in args.dataset.lower():
+            dataset = [d for d in data if len(d["conversations"]) >= 2]
+            dataset = [(data["conversations"][0]["value"], data["conversations"][1]["value"]) for data in dataset if len(data["conversations"][0]["value"]) > 10 and len(data["conversations"][1]["value"]) > 10]
+    logger.info(f"The dataset has {len(dataset)} samples")
+    if len(dataset) == 0:
+        return None
+    random.shuffle(dataset)
+    pb = tqdm(total=args.num_requests, smoothing=0.0)
+    output = []
 
-def get_tokenizer(
-    tokenizer_name: str,
-    *args,
-    tokenizer_mode: str = "auto",
-    trust_remote_code: bool = False,
-    **kwargs,
-) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast]:
-    """Gets a tokenizer for the given model name via Huggingface."""
-    if tokenizer_mode == "slow":
-        if kwargs.get("use_fast", False):
-            raise ValueError("Cannot use the fast tokenizer in slow tokenizer mode.")
-        kwargs["use_fast"] = False
+    def _adjust_prompt(tokenizer, prompt, output, min_len, max_len, min_len_o, max_len_o):
+        if min_len is None or min_len_o is None:
+            return None, None, None
+        max_len = min_len if max_len is None else max_len
+        max_len_o = min_len_o if max_len_o is None else max_len_o
+        prompt_tokens = tokenizer.encode(prompt)
+        output_tokens = tokenizer.encode(output)
+        prompt_len = len(prompt_tokens)
+        output_len = len(output_tokens)
+        if prompt_len < min_len:
+            return None, None, None
+        if prompt_len > max_len:
+            prompt_len = random.randint(min_len, max_len)
+            prompt = tokenizer.decode(prompt_tokens[0:prompt_len])
+        if output_len > max_len_o or output_len < min_len_o:
+            output_len = random.randint(min_len_o, max_len_o)
+        return prompt, prompt_len, output_len
 
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_name, *args, trust_remote_code=trust_remote_code, **kwargs
-        )
-    except TypeError as e:
-        # The LLaMA tokenizer causes a protobuf error in some environments.
-        err_msg = (
-            "Failed to load the tokenizer. If you are using a LLaMA V1 model "
-            "original tokenizer."
-        )
-        raise RuntimeError(err_msg) from e
-    except ValueError as e:
-        # If the error pertains to the tokenizer class not existing or not
-        # currently being imported, suggest using the --trust-remote-code flag.
-        if not trust_remote_code and (
-            "does not exist or is not currently imported." in str(e)
-            or "requires you to execute the tokenizer file" in str(e)
-        ):
-            err_msg = (
-                "Failed to load the tokenizer. If the tokenizer is a custom "
-                "tokenizer not yet available in the HuggingFace transformers "
-                "library, consider setting `trust_remote_code=True` in LLM "
-                "or using the `--trust-remote-code` flag in the CLI."
-            )
-            raise RuntimeError(err_msg) from e
+    if args.sampling_policy == "normal":
+        norm_prompt_lens = np.rint(np.random.normal(args.prompt_len_mean, args.prompt_len_std, size=args.num_requests)).astype(np.int32)
+        norm_output_lens = np.rint(np.random.normal(args.output_len_mean, args.output_len_std, size=args.num_requests)).astype(np.int32)
+
+    for i in range(len(dataset)):
+        if len(output) >= args.num_requests:
+            break
+        data = dataset[i]
+        if args.sampling_policy == "nature":
+            prompt, prompt_len, output_len = _adjust_prompt(tokenizer, data[0], data[1], args.min_prompt_len, args.max_prompt_len, args.min_output_len, args.max_output_len)
+        elif args.sampling_policy == "fixed":
+            prompt, prompt_len, output_len = _adjust_prompt(tokenizer, data[0], data[1], args.fixed_prompt_len, args.fixed_prompt_len, args.fixed_output_len, args.fixed_output_len)
+        elif args.sampling_policy == "normal":
+            n = len(output)
+            prompt, prompt_len, output_len = _adjust_prompt(tokenizer, data[0], data[1], norm_prompt_lens[n], norm_prompt_lens[n], norm_output_lens[n], norm_output_lens[n])
         else:
-            raise e
+            raise ValueError(f"Unknown sampling policy: {args.samping_policy}")
+        if prompt is not None:
+            output.append((prompt, prompt_len, output_len))
+            pb.update(1)
+    pb.close()
+    return output
 
-    return tokenizer
+def get_model(url: str, headers = None)->Optional[str]:
+    res = requests.get(url, headers = headers)
+    model_list = res.json().get("data", [])
+    return model_list[0]["id"] if model_list else None
 
 def main(args: argparse.Namespace):
-    logger.info("=========== arguments =======================")
     logger.info(args)
     logger.info("\n\n")
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    sender = AysncRequestSender(args.backend, args.base_url, args.api_key, args.endpoint_models, args.endpoint_chat, args.endpoint_completion, SYS_PROMPT if args.add_system_prompt else None)
-    if not args.ignore_check:
-        if not sender.check_health(10):
-            logger.error(f"Failed to check the healthy of the inference server")
-            return
-        str_models = sender.get_models()
-        if str_models is None:
-            logger.error("No valid models supported from server")
-            return
-        logger.info(f"[Model list]: {str_models}")
-        json_models = json.loads(str_models)
-        model_list = []
-        for model in json_models['data']:
-            model_list.append(model['id'])
-        logger.info(f"Supported models: {model_list}")
-        if args.model not in model_list:
-            logger.error(f"The LLM server does not support this model: {args.model}")
+    random.seed(1)
+    np.random.seed(1)
+    if not args.model:
+        server_model = get_model(args.endpoint + "/models")
+        if server_model is None and not args.model:
+            raise RuntimeError("Failed to query model name from server")
+        if not args.model:
+            args.model = server_model
+        assert args.model == server_model, f"Mismatched model name: {args.model}, {server_model}"
+    logger.info(f"Model name: {args.model}")
+    # get samples from dataset
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    samples = load_requests(tokenizer, args)
+    logger.info(f"Got {len(samples)} requests")
+    contexts = []
+    for i in range(len(samples)):
+        d = samples[i]
+        if i < PRINT_SAMPLES and args.print_verbose:
+            logger.info(f"Request[{i}]: {d[1]} / {d[2]}, {d[0][0: 100]}")
+        contexts.append(Context(index=i, prompt=d[0], prompt_len=d[1], max_tokens=d[2]))
 
-    tokenizer = get_tokenizer(args.tokenizer, trust_remote_code=args.trust_remote_code, use_fast=args.use_fast)
-    sampler = DatasetSampler(args.dataset)
-    requests_warmup, requests_test = sampler.sample_requests(
-        args.num_warmup_requests,
-        args.num_benchmark_requests,
-        tokenizer,
-        SYS_PROMPT if args.add_system_prompt and args.api_kind == "completions" else None,
-        args.sampling_policy,
-        max_turns=args.max_turns,
-        min_prompt_len=args.min_prompt_len,
-        max_prompt_len=args.max_prompt_len,
-        min_output_len=args.min_output_len,
-        max_prompt_output_len=args.max_prompt_output_len,
-        fixed_prompt_len=args.fixed_prompt_len,
-        fixed_output_len=args.fixed_output_len,
-        max_seq_len=args.max_seq_len,
-        prompt_len_mean=args.prompt_len_mean,
-        prompt_len_std=args.prompt_len_std,
-        output_len_mean=args.output_len_mean,
-        output_len_std=args.output_len_std,
-    )
-
-    parameters = InputParameter(model=args.model, n=args.n, best_of=args.best_of, use_beam_search=args.use_beam_search, presence_penalty=args.presence_penalty, frequency_penalty=args.frequency_penalty, repetition_penalty=args.repetition_penalty,
-        temperature=args.temperature, top_p=args.top_p, top_k=args.top_k if args.do_sample else None, max_tokens=args.fixed_output_len, ignore_eos=None, stream=args.stream
-    )
-
-    if args.dry_run:
-        logger.info("======== basic input parameters ======")
-        logger.info(f"{parameters.to_dict()}")
-        num = 10 if len(requests_test) > 10 else len(requests_test)
-        logger.info(f"========================= print the first {num} requests from test set ===============================")
-        for i in range(num):
-            prompt, in_len, out_len = requests_test[i]
-            logger.info(f"request[{i}]: ({in_len}, {out_len}): {prompt}")
-        logger.info("\n\n")
-        return
-
-    if TMP_TEST_SHARED_PROMPT:
-        ## repeat per 10 requests
-        requests_test_tmp = []
-        num = len(requests_test)
-        for i in range(num):
-            requests_test_tmp.append(requests_test[int(i/10)])
-        requests_test = requests_test_tmp
-
-    # post requests
-    for phase, input_requests in zip(("Warmup", "Benchmark"), (requests_warmup, requests_test)):
-        if len(input_requests) == 0:
-            continue
-        real_reqs = []
-        for req in input_requests:
-            real_reqs.append(RequestData(prompt=req[0], prompt_len=req[1], max_tokens=req[2]))
-        start_time = time.perf_counter()
-        asyncio.run(sender.post_batch_requests_async(args.max_concurrent_requests, real_reqs, parameters, args.api_kind == "chat"))
-        end_time = time.perf_counter()
-        if phase == "Benchmark":
-            prefix = args.model
-            if args.sampling_policy == "fixed":
-                prefix += f"({args.fixed_prompt_len}/{args.fixed_output_len})"
-            elif args.sampling_policy == "nature":
-                prefix += f"([{args.min_prompt_len}, {args.max_prompt_len}]/[{args.min_output_len}, {args.max_output_len}])"
-            elif args.sampling_policy == "normal":
-                prefix += f"([{args.prompt_len_mean, args.prompt_len_std}/[{args.output_len_mean}, {args.output_len_std}])"
-            prefix += f", {args.max_concurrent_requests}"
-            sender.dump_response_stats(tokenizer, args.stream, end_time - start_time, args.warn_dismatch_output_len, False, prefix, args.log_file)
-
-def simple_verify_args(args):
-    assert not args.use_beam_search, "do not support benchmark beam search now."
-    assert (args.best_of is None or args.best_of == 1 and args.n == 1), "do not support benchmark best_of and n now."
-    assert (args.presence_penalty == 0.0 and args.frequency_penalty == 0.0 and args.repetition_penalty == 1.0), "do not support benchmark penalty policies now."
-    if args.do_sample:
-        assert (args.temperature > 0.0), "temperature must be greater than 0.0 when do_sample is True."
-    else:
-        assert args.top_k == 1 and args.top_p == 1.0 and args.temperature == 0.0
-    if not args.stream:
-        logger.warning("The --stream is not set, are you sure run in non-stream mode?")
+    # send requests async
+    extra = {}
+    sender = AysncRequestSender(args.endpoint, args.model, args.api_key, SYS_PROMPT if args.add_system_prompt else None, False if args.disable_stream else True, args.ignore_eos, args.print_verbose)
+    logger.info("Warmup")
+    start_time = time.perf_counter()
+    asyncio.run(sender.post_batch_requests_async(contexts[0:2], args.api_kind == "chat", 2, extra))
+    end_time = time.perf_counter()
+    logger.info(f"Warmup fininshed in {end_time - start_time} seconds")
+    logger.info("Benchmark")
+    start_time = time.perf_counter()
+    asyncio.run(sender.post_batch_requests_async(contexts, args.api_kind == "chat", args.parallel, extra))
+    e2e_duration = time.perf_counter() - start_time
+    logger.info(f"Benchmark fininshed in {e2e_duration} seconds")
+    # metrics
+    num_errors = 0
+    e2e_latency = []
+    ttft = []
+    tpot = []
+    input_tokens = 0
+    output_tokens = 0
+    for i in range(len(contexts)):
+        ctx = contexts[i]
+        if ctx.error:
+            num_errors += 1
+            logger.warning(f"[{ctx.index}] ERROR: {ctx.error}")
+        else:
+            ctx.output_len = len(tokenizer.encode(ctx.generated))
+            if ctx.output_len == 0:
+                logger.warning(f"[{ctx.index}] Empty output")
+                continue
+            if ctx.ttft is None:
+                logger.warning(f"[{ctx.index}] Invalid ttft")
+            else:
+                ctx.decode_latency = ctx.e2e_latency - ctx.ttft
+                ctx.tpot = ctx.decode_latency / ctx.output_len
+                input_tokens += ctx.prompt_len
+                output_tokens += ctx.output_len
+                e2e_latency.append(ctx.e2e_latency)
+                ttft.append(ctx.ttft)
+                tpot.append(ctx.tpot)
+                if args.warn_dismatch_output_len and abs(ctx.output_len - ctx.max_tokens) > 10:
+                    logger.info(f"[{ctx.index}] Mismatched output length: expected {ctx.max_tokens}, got {ctx.output_len}")
+    PERCENTILES = [50, 90, 99]
+    e2e_latency_p = np.percentile(e2e_latency, PERCENTILES)
+    ttft_p = np.percentile(ttft, PERCENTILES)
+    tpot_p = np.percentile(tpot, PERCENTILES)
+    output = f"\n===== Metrics @ {datetime.now().strftime('%m%d:%H-%M')} , duration: {e2e_duration} =====\n"
+    output += f"e2e latency(Median, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
+    output += f"ttft(Median, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
+    output += f"tpot(Median, P90, P99): {tpot[0]:.2f}, {tpot[1]:.2f}, {tpot[2]:.2f}\n"
+    output += f"throughput(input, output): {input_tokens/e2e_duration:.2f}, {output_tokens/e2e_duration:.2f}\n"
+    print(output)
+    if args.log_file:
+        with open(args.log_file, "a") as f:
+            f.write(output)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Benchmark the online serving throughput."
     )
     # LLM Server
-    parser.add_argument("--backend", type=str, help="The backend e.g. vllm, trtllm")
-    parser.add_argument("--base-url", type=str, default="http://localhost:8000")
+    parser.add_argument("--endpoint", type=str, help="The LLM serving endpoint, for example: http://localhost:18011/v1")
+    parser.add_argument("--backend", type=str, default="vllm", help="The backend e.g. vllm, trtllm, default is vllm")
     parser.add_argument("--api-key", type=str, help="The api key to call commercial inference API")
-    parser.add_argument("--api-kind", type=str, default="completions", choices=["chat", "completions"], help="Call char-completions API or completions API")
-    parser.add_argument("--endpoint-models", type=str, help="The endpoint to call server health checking")
-    parser.add_argument("--endpoint-chat", type=str, help="The endpoint to call chat API")
-    parser.add_argument("--endpoint-completion", type=str, help="The endpoint to call completion API")
+    parser.add_argument("--api-kind", type=str, default="completions", choices=["chat", "completions"], help="Can be: chat or completions(default)")
     # input parameters
-    parser.add_argument("--model", type=str, default="default", help="The model name")
-    parser.add_argument("--n", type=int, default=1, help="How many sequences to generate for each prompt.")
-    parser.add_argument("--best-of", type=int, default=None, help="Generates `best_of` sequences per prompt and returns the top `n` results, with the default value of `n` being one.")
-    parser.add_argument("--use-beam-search", action="store_true", default=None)
-    parser.add_argument("--do-sample", action="store_true", help="if this value is set, use top_k")
-    parser.add_argument("--stream", action="store_true")
-    parser.add_argument("--temperature", type=float, default=0, help="temperature parameter")
-    parser.add_argument("--top_p", type=float, default=1.0, help="top-p parameter")
-    parser.add_argument("--top_k", type=int, default=1, help="top-k parameter")
-    parser.add_argument("--presence_penalty", type=float, default=0.0)
-    parser.add_argument("--frequency_penalty", type=float, default=0.0)
-    parser.add_argument("--repetition_penalty", type=float, default=1.0)
+    parser.add_argument("--model", type=str, help="The model name, if not set, call 'endpoint/models' to query")
     # test data sampling
     parser.add_argument("--sampling-policy", type=str, default="nature", choices=["nature", "fixed", "normal"])
-    parser.add_argument("--max_turns", type=int, default=4096)
-    parser.add_argument("--min_prompt_len", type=int, default=4)
-    parser.add_argument("--min_output_len", type=int, default=4)
-    parser.add_argument("--max_prompt_len", type=int, default=4096)
-    parser.add_argument("--max_prompt_output_len", type=int, default=4096)
-    parser.add_argument("--fixed_prompt_len", type=int, default=3500)
-    parser.add_argument("--fixed_output_len", type=int, default=500)
-    parser.add_argument("--max_seq_len", type=int, default=4096)
-    parser.add_argument("--prompt_len_mean", type=int, default=550)
-    parser.add_argument("--prompt_len_std", type=int, default=150)
-    parser.add_argument("--output_len_mean", type=int, default=150)
-    parser.add_argument("--output_len_std", type=int, default=20)
+    parser.add_argument("--min-prompt-len", type=int, default=4)
+    parser.add_argument("--min-output-len", type=int, default=4)
+    parser.add_argument("--max-prompt-len", type=int, default=4096)
+    parser.add_argument("--max-output-len", type=int, default=4096)
+    parser.add_argument("--fixed-prompt-len", type=int, default=3500)
+    parser.add_argument("--fixed-output-len", type=int, default=500)
+    parser.add_argument("--prompt-len-mean", type=int, default=550)
+    parser.add_argument("--prompt-len-std", type=int, default=150)
+    parser.add_argument("--output-len-mean", type=int, default=150)
+    parser.add_argument("--output-len-std", type=int, default=20)
     # press test setting
-    parser.add_argument("--num-warmup-requests", type=int, default=100, help="Number of prompts for warmup.")
-    parser.add_argument("--num-benchmark-requests", type=int, default=8000, help="Number of prompts for benckmark.")
-    parser.add_argument("--max-concurrent-requests", type=int, default=400)
-    parser.add_argument("--ramp_up_period", type=int, default=60)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--num-requests", type=int, default=1000, help="Number of prompts for benckmark.")
+    parser.add_argument("--parallel", type=int, default=10)
     parser.add_argument("--dataset", type=str, help="The local folder path to the dataset for testing")
     parser.add_argument("--tokenizer", type=str, help="The local folder path to the model data for token decoding and encoding")
-    parser.add_argument("--trust-remote-code", action="store_true", help="trust remote code from huggingface")
-    parser.add_argument("--use-fast", action="store_true")
+    parser.add_argument("--disable-stream", action="store_true", help="Disable stream mode")
+    parser.add_argument("--ignore-eos", action="store_true", help="Ignore EOS of the output")
     parser.add_argument("--add-system-prompt", action="store_true", help="add system prompt in front of each conversation")
     parser.add_argument("--warn-dismatch-output-len", action="store_true", help="warn when generated tokens number is not equal to expected output_len")
-    parser.add_argument("--ignore-check", action="store_true", help="do not check health and model validity before send requests")
-    parser.add_argument("--log-file", type=str, default="", help="file to save log information")
-    parser.add_argument("--dry-run", action="store_true", help="Don't run the benchmark really, only print some message for debugging")
+    parser.add_argument("--log-file", type=str, help="file to save log information")
+    parser.add_argument("--print-verbose", action="store_true", help="print in verbose mode")
     args = parser.parse_args()
-    simple_verify_args(args)
+
+    # set_ulimit: target_soft_limit=65535
+    resource_type = resource.RLIMIT_NOFILE
+    current_soft, current_hard = resource.getrlimit(resource_type)
+    if current_soft < 65535:
+        try:
+            resource.setrlimit(resource_type, (65535, current_hard))
+        except ValueError as e:
+            print(f"Fail to set RLIMIT_NOFILE: {e}")
     main(args)
 

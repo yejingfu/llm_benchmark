@@ -31,17 +31,19 @@ class DatasetSampler:
 
     def load_from_dataset(self, name:str) -> Optional[List[Tuple[str, str]]]:
         logger.info(f"Load from dataset: {name}")
-        dataset = None
-        if "sharegpt" in name.lower() or "share_gpt" in name.lower():
-            with open(name, "r", encoding="utf-8") as f:
-                dataset = json.load(f)
-        if dataset is None:
-            raise RuntimeError(f"Failed to load dataset {name}")
+        dataset = []
+        if os.path.exists(name):
+            with open(name, "r") as f:
+                data = json.load(f)
+            if data is None:
+                raise RuntimeError(f"Failed to load dataset {name}")
+            if "kind" in data and data["kind"] == "ppio-internal":
+                for d in data["data"]:
+                    dataset.append((d["prompt"], d["output"]))
+            elif "sharegpt" in name.lower() or "share_gpt" in name.lower():
+                dataset = [d for d in data if len(d["conversations"]) >= 2]
+                dataset = [(data["conversations"][0]["value"], data["conversations"][1]["value"]) for data in dataset]
         logger.info(f"Totally {len(dataset)} samples loaded")
-        dataset = [data for data in dataset if len(data["conversations"]) >= 2]
-        dataset = [(data["conversations"][0]["value"], data["conversations"][1]["value"]) for data in dataset]
-        #random.shuffle(dataset)
-        logger.info(f"{len(dataset)} samples are filtered")
         return dataset
 
     def sample_requests(self, num_warmup, num_test, tokenizer, system_prompt, policy, **kwargs):
