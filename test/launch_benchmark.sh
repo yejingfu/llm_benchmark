@@ -14,7 +14,7 @@ BM_NUM_REQUESTS=2000
 
 parallels=(10 20 30)
 ## pair: input-len, output-len
-request_len=(512 512 1024 1024 1800 200)
+request_len=(1000 1000 1800 200)
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
@@ -57,8 +57,8 @@ function run() {
         for parallel in ${parallels[@]};do
             in_len=${request_len[i]}
             out_len=${request_len[i+1]}
-            local args2="$args --sampling-policy fixed --fixed-prompt-len $in_len --fixed-output-len $out_len --parallel $parallel"
-            echo "Run: python $CUR_DIR/benchmark_client.py $args2"
+            local args2="$args --sampling-policy normal --prompt-len-mean $in_len --prompt-len-std 20 --output-len-mean $out_len --output-len-std 10 --parallel $parallel"
+            echo "===> [Run]: python $CUR_DIR/benchmark_client.py $args2"
             python $CUR_DIR/benchmark_client.py $args2
         done
     done

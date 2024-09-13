@@ -171,6 +171,7 @@ def main(args: argparse.Namespace):
     ttft_p = np.percentile(ttft, PERCENTILES)
     tpot_p = np.percentile(tpot, PERCENTILES)
     output = f"\n===== Metrics @ {datetime.now().strftime('%m%d:%H-%M')} , duration: {e2e_duration} =====\n"
+    output += f"model: {args.model}, policy: {args.sampling_policy}, prompt-len:{contexts[i].prompt_len}, output-len:{contexts[i].max_tokens}, parallel: {args.parallel}\n"
     output += f"e2e latency(Median, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
     output += f"ttft(Median, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
     output += f"tpot(Median, P90, P99): {tpot[0]:.2f}, {tpot[1]:.2f}, {tpot[2]:.2f}\n"
