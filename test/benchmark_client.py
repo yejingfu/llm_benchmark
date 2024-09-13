@@ -174,7 +174,7 @@ def main(args: argparse.Namespace):
     output += f"model: {args.model}, policy: {args.sampling_policy}, prompt-len:{contexts[i].prompt_len}, output-len:{contexts[i].max_tokens}, parallel: {args.parallel}\n"
     output += f"e2e latency(Median, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
     output += f"ttft(Median, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
-    output += f"tpot(Median, P90, P99): {tpot[0]:.3f}, {tpot[1]:.3f}, {tpot[2]:.3f}\n"
+    output += f"tpot(Median, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
     output += f"throughput(input, output): {input_tokens/e2e_duration:.2f}, {output_tokens/e2e_duration:.2f}\n"
     print(output)
     if args.log_file:
