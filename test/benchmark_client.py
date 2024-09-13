@@ -126,7 +126,8 @@ def main(args: argparse.Namespace):
 
     # send requests async
     extra = {}
-    sender = AysncRequestSender(args.endpoint, args.model, args.api_key, SYS_PROMPT if args.add_system_prompt else None, False if args.disable_stream else True, args.ignore_eos, args.print_verbose)
+    ignore_eos = False if args.disable_ignore_eos else True
+    sender = AysncRequestSender(args.endpoint, args.model, args.api_key, SYS_PROMPT if args.add_system_prompt else None, False if args.disable_stream else True, ignore_eos, args.print_verbose)
     logger.info("Warmup")
     start_time = time.perf_counter()
     asyncio.run(sender.post_batch_requests_async(contexts[0:2], args.api_kind == "chat", 2, extra))
@@ -164,8 +165,8 @@ def main(args: argparse.Namespace):
                 e2e_latency.append(ctx.e2e_latency)
                 ttft.append(ctx.ttft)
                 tpot.append(ctx.tpot)
-                if args.warn_dismatch_output_len and abs(ctx.output_len - ctx.max_tokens) > 10:
-                    logger.info(f"[{ctx.index}] Mismatched output length: expected {ctx.max_tokens}, got {ctx.output_len}")
+                if not args.disable_warn_dismatch_output_len and abs(ctx.output_len - ctx.max_tokens) > 10:
+                    logger.warning(f"[{ctx.index}] Mismatched output length: expected {ctx.max_tokens}, got {ctx.output_len}")
     PERCENTILES = [50, 90, 99]
     e2e_latency_p = np.percentile(e2e_latency, PERCENTILES)
     ttft_p = np.percentile(ttft, PERCENTILES)
@@ -209,10 +210,10 @@ if __name__ == "__main__":
     parser.add_argument("--parallel", type=int, default=10)
     parser.add_argument("--dataset", type=str, help="The local folder path to the dataset for testing")
     parser.add_argument("--tokenizer", type=str, help="The local folder path to the model data for token decoding and encoding")
-    parser.add_argument("--disable-stream", action="store_true", help="Disable stream mode")
-    parser.add_argument("--ignore-eos", action="store_true", help="Ignore EOS of the output")
     parser.add_argument("--add-system-prompt", action="store_true", help="add system prompt in front of each conversation")
-    parser.add_argument("--warn-dismatch-output-len", action="store_true", help="warn when generated tokens number is not equal to expected output_len")
+    parser.add_argument("--disable-stream", action="store_true", help="Disable stream mode")
+    parser.add_argument("--disable-ignore-eos", action="store_true", help="Ignore EOS of the output")
+    parser.add_argument("--disable-warn-dismatch-output-len", action="store_true", help="warn when generated tokens number is not equal to expected output_len")
     parser.add_argument("--log-file", type=str, help="file to save log information")
     parser.add_argument("--print-verbose", action="store_true", help="print in verbose mode")
     args = parser.parse_args()
