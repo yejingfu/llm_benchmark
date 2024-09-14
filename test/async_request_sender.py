@@ -29,11 +29,12 @@ class Metrics:
     e2e_latency: List[float] = []
     ttft: List[float] = []
     tpot: List[float] = []
+    tps: List[float] = []
     input_tokens: int = 0
     output_tokens: int = 0
 
     def get_percentile(self, percent):
-        return np.percentile(self.e2e_latency, percent), np.percentile(self.ttft, percent), np.percentile(self.tpot, percent)
+        return np.percentile(self.e2e_latency, percent), np.percentile(self.ttft, percent), np.percentile(self.tpot, percent), np.percentile(self.tps, percent)
 
 @dataclass
 class Context:
@@ -232,10 +233,12 @@ def calculate_metrics(tokenizer: AutoTokenizer, contexts: List[Context], duratio
             continue
         ctx.decode_latency = ctx.e2e_latency - ctx.ttft
         ctx.tpot = ctx.decode_latency / ctx.output_len
+        ctx.tps = ctx.output_len / ctx.decode_latency
         m.input_tokens += ctx.prompt_len
         m.output_tokens += ctx.output_len
         m.e2e_latency.append(ctx.e2e_latency)
         m.ttft.append(ctx.ttft)
         m.tpot.append(ctx.tpot)
+        m.tps.append(ctx.tps)
     return m
 

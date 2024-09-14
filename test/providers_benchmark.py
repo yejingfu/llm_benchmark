@@ -63,13 +63,14 @@ def run_benchmark(provider: LlmProvider, contexts: List[Context], tokenizer: Aut
         return
     for i in range(len(metrics.errors)):
         logger.warning(f"Error[{i}]: {metrics.errors[i]}")
-    e2e_latency_p, ttft_p, tpot_p = metrics.get_percentile([50, 90, 99])
+    e2e_latency_p, ttft_p, tpot_p, tps_p = metrics.get_percentile([50, 90, 99])
     output = f"\n===== Metrics @ {datetime.now().strftime('%m%d:%H-%M')} , duration: {e2e_duration} =====\n"
     output += f"privder: {provider} \n"
     output += f"prompt-len: {args.input_len}, output-len: {args.output_len}, parallel: {args.parallel} \n"
     output += f"e2e latency(Median, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
     output += f"ttft(Median, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
     output += f"tpot(Median, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
+    output += f"tps(Median, P90, P99): {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
     output += f"throughput(input, output): {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}\n"
     output += f"num erros: {len(metrics.errors)}\n"
     print(output)
