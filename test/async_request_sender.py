@@ -25,7 +25,7 @@ AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 #dataclass
 class Metrics:
     duration: float = 0
-    num_errors: int = 0
+    errors: List[str] = []
     e2e_latency: List[float] = []
     ttft: List[float] = []
     tpot: List[float] = []
@@ -159,7 +159,7 @@ class AysncRequestSender:
                         payload["prompt"] = f"<s>[INST] {ctx.prompt} [/INST]"
                     url = self.endpoint + "/completions"
                 if self.verbose and ctx.index == 0:
-                    logger.info(f"payload: {payload}")
+                    logger.info(f"URL: {url}, payload: {payload}")
                 ## post now
                 if self.verbose:
                     logger.info(f"Send request[{ctx.index}], {ctx.prompt_len}, {ctx.max_tokens}")
@@ -177,6 +177,9 @@ class AysncRequestSender:
                                 chunk = chunk_bytes.decode("utf-8")
                                 if chunk.startswith("data: "):
                                     chunk = chunk[6:]
+                                #print(f"==== chunk: ++{chunk}++")
+                                if chunk == ": OPENROUTER PROCESSING":
+                                    continue
                                 if chunk == "[DONE]":
                                     ctx.e2e_latency = time.perf_counter() - request_start_time
                                 else:
@@ -216,16 +219,16 @@ def calculate_metrics(tokenizer: AutoTokenizer, contexts: List[Context], duratio
     for i in range(len(contexts)):
         ctx = contexts[i]
         if ctx.error:
-            m.num_errors += 1
+            m.errors.append(ctx.error)
             continue
         ctx.output_len = len(tokenizer.encode(ctx.generated))
         if ctx.output_len == 0:
             ctx.error = f"Request {ctx.index} has empty output"
-            m.num_errors += 1
+            m.errors.append(ctx.error)
             continue
         if ctx.ttft is None:
             ctx.error = f"Request {ctx.index} has invalid ttft"
-            m.num_errors += 1
+            m.errors.append(ctx.error)
             continue
         ctx.decode_latency = ctx.e2e_latency - ctx.ttft
         ctx.tpot = ctx.decode_latency / ctx.output_len

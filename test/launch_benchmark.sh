@@ -57,7 +57,7 @@ function run() {
         for parallel in ${parallels[@]};do
             in_len=${request_len[i]}
             out_len=${request_len[i+1]}
-            local args2="$args --sampling-policy normal --prompt-len-mean $in_len --prompt-len-std 20 --output-len-mean $out_len --output-len-std 10 --parallel $parallel"
+            local args2="$args --sampling-policy normal --prompt-len-mean $in_len --prompt-len-std 10 --output-len-mean $out_len --output-len-std 6 --parallel $parallel"
             echo "===> [Run]: python $CUR_DIR/benchmark_client.py $args2"
             python $CUR_DIR/benchmark_client.py $args2
         done

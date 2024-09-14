@@ -4,10 +4,34 @@
     "providers": [
         {
             "name": "ppinfer_local",
-            "enable": true,
+            "enable": false,
             "doc": "",
             "endpoint": "http://localhost:18011/v1",
             "model-names": ["llama31-8b-fp8"],
+            "api_key": ""
+        },
+        {
+            "name": "openrouter:Novita",
+            "enable": true,
+            "doc": "",
+            "endpoint": "",
+            "model-names": ["meta-llama/llama-3.1-8b-instruct"],
+            "api_key": ""
+        },
+        {
+            "name": "openrouter:Lepton",
+            "enable": false,
+            "doc": "",
+            "endpoint": "",
+            "model-names": ["meta-llama/llama-3.1-8b-instruct"],
+            "api_key": ""
+        },
+        {
+            "name": "openrouter:DeepInfra",
+            "enable": false,
+            "doc": "",
+            "endpoint": "",
+            "model-names": ["meta-llama/llama-3.1-8b-instruct"],
             "api_key": ""
         },
         {
