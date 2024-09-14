@@ -105,7 +105,7 @@ def main(args: argparse.Namespace):
     e2e_latency_p, ttft_p, tpot_p, tps_p = metrics.get_percentile([50, 90, 99])
     output = f"\n===== Metrics @ {datetime.now().strftime('%m%d:%H-%M')} , duration: {e2e_duration} =====\n"
     output += f"model: {args.model}, policy: {args.sampling_policy}, prompt-len:{contexts[i].prompt_len}, output-len:{contexts[i].max_tokens}, parallel: {args.parallel}\n"
-    output += f"prompt-len: {args.input_len}, output-len: {args.output_len}, parallel: {args.parallel} \n"
+    output += f"prompt-len: {contexts[0].prompt_len}, output-len: {contexts[0].max_tokens}, parallel: {args.parallel} \n"
     output += f"e2e latency(Median, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
     output += f"ttft(Median, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
     output += f"tpot(Median, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
