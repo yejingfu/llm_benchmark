@@ -12,7 +12,8 @@ BM_CHAT=0
 BM_ADD_SYS_PROMPT=0
 BM_NUM_REQUESTS=2000
 
-parallels=(10 20 30)
+## set parallels to 1 to test the single batch, which can get max speed (tps)
+parallels=(1 10 20 30)
 ## pair: input-len, output-len
 request_len=(1000 500 1800 200)
 
@@ -38,7 +39,7 @@ function run() {
     if [ x"$BM_DATASET_PATH" = x"" ]; then
         LOG ERR "Please set --dataset"
     fi
-    local args="--endpoint $BM_ENDPOINT --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --num-requests $BM_NUM_REQUESTS"
+    local args="--endpoint $BM_ENDPOINT --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH"
     if [ x"$BM_API_KEY" != x"" ]; then
         args="$args --api-key $BM_API_KEY"
     fi
@@ -58,6 +59,12 @@ function run() {
             in_len=${request_len[i]}
             out_len=${request_len[i+1]}
             local args2="$args --sampling-policy normal --prompt-len-mean $in_len --prompt-len-std 10 --output-len-mean $out_len --output-len-std 6 --parallel $parallel"
+            if [ $parallel -eq 1 ]; then
+                ## single batch, use less requests to save time
+                args2="$args2 --num-requests 20"
+            else
+                args2="$args2 --num-requests $BM_NUM_REQUESTS"
+            fi
             echo "===> [Run]: python $CUR_DIR/benchmark_client.py $args2"
             python $CUR_DIR/benchmark_client.py $args2
         done

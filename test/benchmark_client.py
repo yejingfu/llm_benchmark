@@ -20,7 +20,8 @@ from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
 from typing import List, Tuple, Union, Optional, Dict
 from transformers import AutoTokenizer
-from async_request_sender import Context, AysncRequestSender
+from async_request_sender import Context, AysncRequestSender, Metrics, calculate_metrics
+import util
 
 
 SYS_PROMPT="""
@@ -32,73 +33,6 @@ If asked about an image with a person in it, say as much as you can instead of r
 TMP_TEST_SHARED_PROMPT = False
 PRINT_SAMPLES = 10
 
-def load_requests(tokenizer, args):
-    logger.info(f"Load from dataset: {args.dataset}")
-    dataset = []
-    if os.path.exists(args.dataset):
-        with open(args.dataset, "r") as f:
-            data = json.load(f)
-        if data is None:
-            raise RuntimeError(f"Failed to load dataset {args.dataset}")
-        if "kind" in data and data["kind"] == "ppio-internal":
-            for d in data["data"]:
-                dataset.append((d["prompt"], d["output"]))
-        elif "sharegpt" in args.dataset.lower() or "share_gpt" in args.dataset.lower():
-            dataset = [d for d in data if len(d["conversations"]) >= 2]
-            dataset = [(data["conversations"][0]["value"], data["conversations"][1]["value"]) for data in dataset if len(data["conversations"][0]["value"]) > 10 and len(data["conversations"][1]["value"]) > 10]
-    logger.info(f"The dataset has {len(dataset)} samples")
-    if len(dataset) == 0:
-        return None
-    random.shuffle(dataset)
-    pb = tqdm(total=args.num_requests, smoothing=0.0)
-    output = []
-
-    def _adjust_prompt(tokenizer, prompt, output, min_len, max_len, min_len_o, max_len_o):
-        if min_len is None or min_len_o is None:
-            return None, None, None
-        max_len = min_len if max_len is None else max_len
-        max_len_o = min_len_o if max_len_o is None else max_len_o
-        prompt_tokens = tokenizer.encode(prompt)
-        output_tokens = tokenizer.encode(output)
-        prompt_len = len(prompt_tokens)
-        output_len = len(output_tokens)
-        if prompt_len < min_len:
-            return None, None, None
-        if prompt_len > max_len:
-            prompt_len = random.randint(min_len, max_len)
-            prompt = tokenizer.decode(prompt_tokens[0:prompt_len])
-        if output_len > max_len_o or output_len < min_len_o:
-            output_len = random.randint(min_len_o, max_len_o)
-        return prompt, prompt_len, output_len
-
-    if args.sampling_policy == "normal":
-        norm_prompt_lens = np.rint(np.random.normal(args.prompt_len_mean, args.prompt_len_std, size=args.num_requests)).astype(np.int32)
-        norm_output_lens = np.rint(np.random.normal(args.output_len_mean, args.output_len_std, size=args.num_requests)).astype(np.int32)
-
-    for i in range(len(dataset)):
-        if len(output) >= args.num_requests:
-            break
-        data = dataset[i]
-        if args.sampling_policy == "nature":
-            prompt, prompt_len, output_len = _adjust_prompt(tokenizer, data[0], data[1], args.min_prompt_len, args.max_prompt_len, args.min_output_len, args.max_output_len)
-        elif args.sampling_policy == "fixed":
-            prompt, prompt_len, output_len = _adjust_prompt(tokenizer, data[0], data[1], args.fixed_prompt_len, args.fixed_prompt_len, args.fixed_output_len, args.fixed_output_len)
-        elif args.sampling_policy == "normal":
-            n = len(output)
-            prompt, prompt_len, output_len = _adjust_prompt(tokenizer, data[0], data[1], norm_prompt_lens[n], norm_prompt_lens[n], norm_output_lens[n], norm_output_lens[n])
-        else:
-            raise ValueError(f"Unknown sampling policy: {args.samping_policy}")
-        if prompt is not None:
-            output.append((prompt, prompt_len, output_len))
-            pb.update(1)
-    pb.close()
-    return output
-
-def get_model(url: str, headers = None)->Optional[str]:
-    res = requests.get(url, headers = headers)
-    model_list = res.json().get("data", [])
-    return model_list[0]["id"] if model_list else None
-
 def main(args: argparse.Namespace):
     logger.info(args)
     logger.info("\n\n")
@@ -106,7 +40,7 @@ def main(args: argparse.Namespace):
     random.seed(1)
     np.random.seed(1)
     if not args.model:
-        server_model = get_model(args.endpoint + "/models")
+        server_model = util.get_model(args.endpoint + "/models")
         if server_model is None and not args.model:
             raise RuntimeError("Failed to query model name from server")
         if not args.model:
@@ -114,8 +48,25 @@ def main(args: argparse.Namespace):
         assert args.model == server_model, f"Mismatched model name: {args.model}, {server_model}"
     logger.info(f"Model name: {args.model}")
     # get samples from dataset
+    if args.sampling_policy == "nature":
+        min_in_len = [args.min_prompt_len] * args.num_requests
+        max_in_len = [args.max_prompt_len] * args.num_requests
+        min_out_len = [args.min_output_len] * args.num_requests
+        max_out_len = [args.max_output_len] * args.num_requests
+    elif args.sampling_policy == "fixed":
+        min_in_len = [args.fixed_prompt_len] * args.num_requests
+        max_in_len = min_in_len
+        min_out_len = [args.fixed_output_len] * args.num_requests
+        max_out_len = min_out_len
+    elif args.sampling_policy == "normal":
+        min_in_len = np.rint(np.random.normal(args.prompt_len_mean, args.prompt_len_std, size=args.num_requests)).astype(np.int32)
+        max_in_len = min_in_len
+        min_out_len = np.rint(np.random.normal(args.output_len_mean, args.output_len_std, size=args.num_requests)).astype(np.int32)
+        max_out_len = min_out_len
+    if min_in_len is None:
+        raise RuntimeError("Invalid input length and output length")
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-    samples = load_requests(tokenizer, args)
+    samples = util.load_requests_from_json(tokenizer, args.dataset, args.num_requests, min_in_len, max_in_len, min_out_len, max_out_len)
     logger.info(f"Got {len(samples)} requests")
     contexts = []
     for i in range(len(samples)):
@@ -134,10 +85,7 @@ def main(args: argparse.Namespace):
     end_time = time.perf_counter()
     logger.info(f"Warmup fininshed in {end_time - start_time} seconds")
     for i in range(2):
-        contexts[i].error = None
-        contexts[i].ttft = None
-        contexts[i].generated = ""
-        contexts[i].e2e_latency = 0
+        contexts[i].clean()
 
     logger.info("Benchmark")
     start_time = time.perf_counter()
@@ -145,44 +93,25 @@ def main(args: argparse.Namespace):
     e2e_duration = time.perf_counter() - start_time
     logger.info(f"Benchmark fininshed in {e2e_duration} seconds")
     # metrics
-    num_errors = 0
-    e2e_latency = []
-    ttft = []
-    tpot = []
-    input_tokens = 0
-    output_tokens = 0
-    for i in range(len(contexts)):
-        ctx = contexts[i]
-        if ctx.error:
-            num_errors += 1
+    metrics = calculate_metrics(tokenizer, contexts, e2e_duration)
+    if metrics is None:
+        logger.warning("Failed to get metrics")
+        return
+    for ctx in contexts:
+       if ctx.error:
             logger.warning(f"[{ctx.index}] ERROR: {ctx.error}")
-        else:
-            ctx.output_len = len(tokenizer.encode(ctx.generated))
-            if ctx.output_len == 0:
-                logger.warning(f"[{ctx.index}] Empty output")
-                continue
-            if ctx.ttft is None:
-                logger.warning(f"[{ctx.index}] Invalid ttft")
-            else:
-                ctx.decode_latency = ctx.e2e_latency - ctx.ttft
-                ctx.tpot = ctx.decode_latency / ctx.output_len
-                input_tokens += ctx.prompt_len
-                output_tokens += ctx.output_len
-                e2e_latency.append(ctx.e2e_latency)
-                ttft.append(ctx.ttft)
-                tpot.append(ctx.tpot)
-                if not args.disable_warn_dismatch_output_len and abs(ctx.output_len - ctx.max_tokens) > 10:
-                    logger.warning(f"[{ctx.index}] Mismatched output length: expected {ctx.max_tokens}, got {ctx.output_len}")
-    PERCENTILES = [50, 90, 99]
-    e2e_latency_p = np.percentile(e2e_latency, PERCENTILES)
-    ttft_p = np.percentile(ttft, PERCENTILES)
-    tpot_p = np.percentile(tpot, PERCENTILES)
+       if not args.disable_warn_dismatch_output_len and abs(ctx.output_len - ctx.max_tokens) > 10:
+            logger.warning(f"[{ctx.index}] Mismatched output length: expected {ctx.max_tokens}, got {ctx.output_len}")
+    e2e_latency_p, ttft_p, tpot_p, tps_p = metrics.get_percentile([50, 90, 99])
     output = f"\n===== Metrics @ {datetime.now().strftime('%m%d:%H-%M')} , duration: {e2e_duration} =====\n"
     output += f"model: {args.model}, policy: {args.sampling_policy}, prompt-len:{contexts[i].prompt_len}, output-len:{contexts[i].max_tokens}, parallel: {args.parallel}\n"
+    output += f"prompt-len: {args.input_len}, output-len: {args.output_len}, parallel: {args.parallel} \n"
     output += f"e2e latency(Median, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
     output += f"ttft(Median, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
     output += f"tpot(Median, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
-    output += f"throughput(input, output): {input_tokens/e2e_duration:.2f}, {output_tokens/e2e_duration:.2f}\n"
+    output += f"tps(Median, P90, P99): {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
+    output += f"throughput(input, output): {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}\n"
+    output += f"num erros: {len(metrics.errors)}\n"
     print(output)
     if args.log_file:
         with open(args.log_file, "a") as f:
