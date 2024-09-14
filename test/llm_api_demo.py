@@ -68,6 +68,9 @@ def print_chunk_streamly(count: int, data):
             cur = f"{data['choices'][0]['text']}"
         elif "message" in data["choices"][0]:
             cur = f"{data['choices'][0]['message']['content']}"
+        elif "delta" in data["choices"][0]:
+            if "content" in data['choices'][0]['delta']:
+                cur = f"{data['choices'][0]['delta']['content']}"
     elif "text" in data:
         cur = f"{data['text']}"
 
@@ -80,7 +83,6 @@ async def async_request_openai_completions(
     request_input: RequestInput,
     api_key: Optional[str] = None,
     pbar: Optional[tqdm] = None,
-    print_progress: bool = True,
 ) -> RequestOutput:
     api_url = request_input.api_url
 
@@ -126,6 +128,7 @@ async def async_request_openai_completions(
         latency = 0.0
         st = time.perf_counter()
         most_recent_timestamp = st
+        print(f"URL:{api_url}, payload: {payload}")
         try:
             iter = 0
             async with session.post(url=api_url, json=payload, headers=headers) as response:
@@ -136,18 +139,23 @@ async def async_request_openai_completions(
                             continue
                         iter += 1
                         chunk = remove_prefix(chunk_bytes.decode("utf-8"), "data: ")
+                        if chunk == ": OPENROUTER PROCESSING":
+                            continue
                         if chunk == "[DONE]":
                             latency = time.perf_counter() - st
                         else:
                             data = json.loads(chunk)
-                            if print_progress and request_input.stream:
+                            if request_input.stream:
                                 print_chunk_streamly(iter, data)
                             text = None
                             if "choices" in data:
-                                if "text" in data["choices"][0]:
-                                    text = data["choices"][0]["text"]
-                                elif "message" in data["choices"][0]:
-                                    text = data["choices"][0]["message"]["content"]
+                                c0 = data["choices"][0]
+                                if "text" in c0:
+                                    text = c0["text"]
+                                elif "message" in c0 and "content" in c0["message"]:
+                                    text = c0["message"]["content"]
+                                elif "delta" in c0 and "content" in c0["delta"]:
+                                    text = c0["delta"]["content"]
                             elif "text" in data:
                                 text = data["text"]
                             if text is not None:
@@ -305,25 +313,23 @@ def main(args):
             best_of = args.best_of,
         )
         print(input)
-        print_chunck = True
         start_time = time.time()
         result = None
         if args.repeat > 1:
             async def _run_requests_in_batch(num):
                 tasks: List[asyncio.Task] = []
                 for _ in range(num):
-                    tasks.append(asyncio.create_task(async_request_openai_completions(action, input, api_key=args.api_key, print_progress=print_chunck)))
+                    tasks.append(asyncio.create_task(async_request_openai_completions(action, input, api_key=args.api_key)))
                 await asyncio.gather(*tasks)
             asyncio.run(_run_requests_in_batch(args.repeat))
         else:
-            result = asyncio.run(async_request_openai_completions(action, input, api_key=args.api_key, print_progress=print_chunck))
+            result = asyncio.run(async_request_openai_completions(action, input, api_key=args.api_key))
         end_time = time.time()
         #print(f"Time elapsed: {datetime.fromtimestamp(end_time - start_time).strftime('%H:%M:%S.%f')}")
         print(f"\n Time elapsed: {end_time - start_time} seconds.")
         if result is not None:
             if result.success:
-                if not args.stream and not print_chunck:
-                    print(f"Generated text: {result.generated_text}")
+                print(f"Final generated text: {result.generated_text}")
             else:
                 print(f"Error: {result.error}")
     elif action == "embeddings" or action == "compatible-embeddings":
