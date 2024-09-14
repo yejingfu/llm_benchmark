@@ -14,7 +14,7 @@ BM_NUM_REQUESTS=2000
 
 parallels=(10 20 30)
 ## pair: input-len, output-len
-request_len=(1000 1000 1800 200)
+request_len=(1000 500 1800 200)
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"

@@ -133,6 +133,12 @@ def main(args: argparse.Namespace):
     asyncio.run(sender.post_batch_requests_async(contexts[0:2], args.api_kind == "chat", 2, extra))
     end_time = time.perf_counter()
     logger.info(f"Warmup fininshed in {end_time - start_time} seconds")
+    for i in range(2):
+        contexts[i].error = None
+        contexts[i].ttft = None
+        contexts[i].generated = ""
+        contexts[i].e2e_latency = 0
+
     logger.info("Benchmark")
     start_time = time.perf_counter()
     asyncio.run(sender.post_batch_requests_async(contexts, args.api_kind == "chat", args.parallel, extra))
