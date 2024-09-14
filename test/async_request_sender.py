@@ -22,6 +22,19 @@ STRICT_SEMAPHORE=False
 PERCENTILES = [25, 50, 75, 90, 95, 99, 99.9, 99.99]
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 
+#dataclass
+class Metrics:
+    duration: float = 0
+    num_errors: int = 0
+    e2e_latency: List[float] = []
+    ttft: List[float] = []
+    tpot: List[float] = []
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def get_percentile(self, percent):
+        return np.percentile(self.e2e_latency, percent), np.percentile(self.ttft, percent), np.percentile(self.tpot, percent)
+
 @dataclass
 class Context:
     ## input
@@ -38,6 +51,15 @@ class Context:
     ttft: Optional[float] = None
     tpot: Optional[float] = None
     tps: float = 0
+
+    def clean(self):
+        self.error = None
+        self.generated = ""
+        self.e2e_latency = 0
+        self.decode_latency = 0
+        self.ttft = None
+        self.tpot = None
+        self.tps = 0
 
 @dataclass
 class InputParameter:
@@ -185,4 +207,32 @@ class AysncRequestSender:
                     ctx.e2e_latency = time.perf_counter() - request_start_time
                 if self.verbose:
                     logger.info(f"Finished request[{ctx.index}], duration: {ctx.e2e_latency}")
+
+def calculate_metrics(tokenizer: AutoTokenizer, contexts: List[Context], duration: float) -> Optional[Metrics]:
+    if len(contexts) == 0:
+        return None
+    m = Metrics()
+    m.duration = duration
+    for i in range(len(contexts)):
+        ctx = contexts[i]
+        if ctx.error:
+            m.num_errors += 1
+            continue
+        ctx.output_len = len(tokenizer.encode(ctx.generated))
+        if ctx.output_len == 0:
+            ctx.error = f"Request {ctx.index} has empty output"
+            m.num_errors += 1
+            continue
+        if ctx.ttft is None:
+            ctx.error = f"Request {ctx.index} has invalid ttft"
+            m.num_errors += 1
+            continue
+        ctx.decode_latency = ctx.e2e_latency - ctx.ttft
+        ctx.tpot = ctx.decode_latency / ctx.output_len
+        m.input_tokens += ctx.prompt_len
+        m.output_tokens += ctx.output_len
+        m.e2e_latency.append(ctx.e2e_latency)
+        m.ttft.append(ctx.ttft)
+        m.tpot.append(ctx.tpot)
+    return m
 
