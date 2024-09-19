@@ -6,8 +6,8 @@ import requests
 from loguru import logger
 from tqdm import tqdm
 from typing import List, Optional, Tuple
-from datasets import Dataset, load_dataset, VerificationMode
 from transformers import AutoTokenizer
+from dataclasses import dataclass, field, asdict
 
 HF_DATASET_PRESET = {
     "sharegpt_wizard": "Thermostatic/ShareGPT_wizard_vicuna_unfiltered_no_alignment",
@@ -21,12 +21,27 @@ HF_DATASET_PRESET = {
 CNN_DAILYMAIL_SYS_PROMPT = "As an AI assist, could you please summarize or highlight the following content "
 ALPACA_CODE_SYS_PROMPT = "Below is an instruction that describes a task. Write a response that appropriately completes the request."
 
+@dataclass
+class LlmProvider:
+    provider: str
+    model: str
+    endpoint: str
+    api_key: Optional[str] = None
+    def is_openrouter(self):
+        return self.provider.startswith("openrouter:")
+    def get_openrouter_provider(self):
+        if self.provider.startswith("openrouter:"):
+            return self.provider[11:]
+        else:
+            return None
+
 def get_hf_dataset_path(key: str) -> str:
     if key in HF_DATASET_PRESET:
         return HF_DATASET_PRESET[key]
     return None
 
-def load_hf_dataset(ds_path) -> Dataset:
+def load_hf_dataset(ds_path):
+    from datasets import Dataset, load_dataset, VerificationMode
     if os.path.exists(ds_path):
         with open(ds_path) as f:
             dataset = json.load(f)
@@ -140,4 +155,25 @@ def get_model(url: str, headers = None)->Optional[str]:
     res = requests.get(url, headers = headers)
     model_list = res.json().get("data", [])
     return model_list[0]["id"] if model_list else None
+
+def get_llm_provider(config_file:str) -> List[LlmProvider]:
+    providers = []
+    if os.path.isfile(config_file):
+        with open(config_file, "r") as f:
+            json_data = json.load(f)
+            assert json_data, "Invalid provider config file"
+            for p in json_data["providers"]:
+                if "enable" in p and p["enable"] == False:
+                    continue
+                name = p["name"]
+                if name.startswith("openrouter:"):
+                    ep = OPENROUTER_EP
+                else:
+                    ep = p["endpoint"]
+                for n in p["model-names"]:
+                    ep2 = ep
+                    if "{model}" in ep:
+                        ep2 = ep.replace("{model}", n)
+                    providers.append(LlmProvider(name, n, ep2, p["api_key"]))
+    return providers
 

@@ -29,21 +29,7 @@ PRINT_SAMPLES = 10
 ## valid providers: Lepton, OctoAI, Novita, Together, DeepInfra, Replicate, Fireworks, Groq, DeepSeek, OpenAI, 01.AI
 OPENROUTER_EP = "https://openrouter.ai/api/v1"
 
-@dataclass
-class LlmProvider:
-    provider: str
-    model: str
-    endpoint: str
-    api_key: Optional[str] = None
-    def is_openrouter(self):
-        return self.provider.startswith("openrouter:")
-    def get_openrouter_provider(self):
-        if self.provider.startswith("openrouter:"):
-            return self.provider[11:]
-        else:
-            return None
-
-def run_benchmark(provider: LlmProvider, contexts: List[Context], tokenizer: AutoTokenizer, args: argparse.Namespace):
+def run_benchmark(provider: util.LlmProvider, contexts: List[Context], tokenizer: AutoTokenizer, args: argparse.Namespace):
     logger.info(f"Test provider: {provider}")
     for ctx in contexts:
         ctx.clean()
@@ -88,25 +74,7 @@ def main(args: argparse.Namespace):
     np.random.seed(1)
 
     # get providers
-    providers = []
-    config_file = os.path.dirname(os.path.abspath(__file__)) + "/llm_providers.json"
-    if os.path.isfile(config_file):
-        with open(config_file, "r") as f:
-            json_data = json.load(f)
-            assert json_data, "Invalid provider config file"
-            for p in json_data["providers"]:
-                if "enable" in p and p["enable"] == False:
-                    continue
-                name = p["name"]
-                if name.startswith("openrouter:"):
-                    ep = OPENROUTER_EP
-                else:
-                    ep = p["endpoint"]
-                for n in p["model-names"]:
-                    ep2 = ep
-                    if "{model}" in ep:
-                        ep2 = ep.replace("{model}", n)
-                    providers.append(LlmProvider(name, n, ep2, p["api_key"]))
+    providers = util.get_llm_provider(os.path.dirname(os.path.abspath(__file__)) + "/llm_providers.json")
     if len(providers) == 0:
         raise RuntimeError(f"No valid provider found in the configure file: {config_file}")
     for i in range(min(PRINT_PROVIDERS, len(providers))):
