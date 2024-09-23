@@ -85,7 +85,12 @@ def main(args: argparse.Namespace):
     norm_prompt_lens = np.rint(np.random.normal(args.input_len, 10, size=args.num_requests)).astype(np.int32)
     norm_output_lens = np.rint(np.random.normal(args.output_len, 6, size=args.num_requests)).astype(np.int32)
     samples = util.load_requests_from_json(tokenizer, args.dataset, args.num_requests, norm_prompt_lens, norm_prompt_lens, norm_output_lens, norm_output_lens)
-    logger.info(f"Got {len(samples)} requests")
+    if len(samples) == 0:
+        raise RuntimeError("No length matched samples loaded")
+    if len(samples) < args.num_requests:
+        logger.warning(f"Only got {len(samples)} requests, expected: {args.num_requests}")
+    else:
+        logger.info(f"Got {len(samples)} requests")
     contexts = []
     for i in range(len(samples)):
         d = samples[i]
