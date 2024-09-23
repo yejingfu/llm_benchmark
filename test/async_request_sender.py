@@ -121,7 +121,7 @@ class AysncRequestSender:
             parallel = 1000
         semaphore = asyncio.Semaphore(parallel)
         if STRICT_SEMAPHORE:
-            for _ in range(batch_size - 1):
+            for _ in range(len(contexts) - 1):
                 await semaphore.acquire()
             tasks.append(asyncio.create_task(self._update_sem(semaphore, 1, 60, parallel - 1, num)))
         for i in range(num):
