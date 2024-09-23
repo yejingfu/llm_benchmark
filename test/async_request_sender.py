@@ -22,16 +22,16 @@ STRICT_SEMAPHORE=False
 PERCENTILES = [25, 50, 75, 90, 95, 99, 99.9, 99.99]
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 
-#dataclass
+@dataclass
 class Metrics:
-    duration: float = 0
-    errors: List[str] = []
-    e2e_latency: List[float] = []
-    ttft: List[float] = []
-    tpot: List[float] = []
-    tps: List[float] = []
-    input_tokens: int = 0
-    output_tokens: int = 0
+    duration: float = field(default=0)
+    errors: List[str] = field(default_factory=list)
+    e2e_latency: List[float] = field(default_factory=list)
+    ttft: List[float] = field(default_factory=list)
+    tpot: List[float] = field(default_factory=list)
+    tps: List[float] = field(default_factory=list)
+    input_tokens: int = field(default=0)
+    output_tokens: int = field(default=0)
 
     def get_percentile(self, percent):
         return np.percentile(self.e2e_latency, percent), np.percentile(self.ttft, percent), np.percentile(self.tpot, percent), np.percentile(self.tps, percent)
@@ -39,19 +39,19 @@ class Metrics:
 @dataclass
 class Context:
     ## input
-    index: int = 0
-    prompt: str = ""
-    prompt_len: int = 0
-    max_tokens: int = 0
+    index: int = field(default=0)
+    prompt: str = field(default="")
+    prompt_len: int = field(default=0)
+    max_tokens: int = field(default=0)
     ## outpt
-    error: Optional[str] = None
-    generated: str = ""
-    output_len: int = 0
-    e2e_latency: float = 0
-    decode_latency: float = 0
-    ttft: Optional[float] = None
-    tpot: Optional[float] = None
-    tps: float = 0
+    error: Optional[str] = field(default=None)
+    generated: str = field(default="")
+    output_len: int = field(default=0)
+    e2e_latency: float = field(default=0)
+    decode_latency: float = field(default=0)
+    ttft: Optional[float] = field(default=None)
+    tpot: Optional[float] = field(default=None)
+    tps: float = field(default=0)
 
     def clean(self):
         self.error = None

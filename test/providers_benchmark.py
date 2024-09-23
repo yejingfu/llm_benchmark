@@ -26,8 +26,8 @@ import util
 
 PRINT_PROVIDERS = 10
 PRINT_SAMPLES = 10
-## valid providers: Lepton, OctoAI, Novita, Together, DeepInfra, Replicate, Fireworks, Groq, DeepSeek, OpenAI, 01.AI
-OPENROUTER_EP = "https://openrouter.ai/api/v1"
+
+## Openrouter valid providers: Lepton, OctoAI, Novita, Together, DeepInfra, Replicate, Fireworks, Groq, DeepSeek, OpenAI, 01.AI
 
 def run_benchmark(provider: util.LlmProvider, contexts: List[Context], tokenizer: AutoTokenizer, args: argparse.Namespace):
     logger.info(f"Test provider: {provider}")

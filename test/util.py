@@ -18,15 +18,17 @@ HF_DATASET_PRESET = {
     "alpaca_code": "iamtarun/python_code_instructions_18k_alpaca",
 }
 
+OPENROUTER_EP = "https://openrouter.ai/api/v1"
+
 CNN_DAILYMAIL_SYS_PROMPT = "As an AI assist, could you please summarize or highlight the following content "
 ALPACA_CODE_SYS_PROMPT = "Below is an instruction that describes a task. Write a response that appropriately completes the request."
 
 @dataclass
 class LlmProvider:
-    provider: str
-    model: str
-    endpoint: str
-    api_key: Optional[str] = None
+    provider: str = field(default="")
+    model: str = field(default="")
+    endpoint: str = field(default="")
+    api_key: Optional[str] = field(default=None)
     def is_openrouter(self):
         return self.provider.startswith("openrouter:")
     def get_openrouter_provider(self):
