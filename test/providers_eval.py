@@ -10,6 +10,7 @@ EVAL_MODEL="local-completions"
 EVAL_TASKS="mmlu,gsm8k,gpqa,bbh,mathqa"
 EVAL_CONCURRENT=20
 EVAL_LOG_SAMPLE=True
+EVAL_CHECK_MODEL=False
 
 try:
     import lm_eval
@@ -29,6 +30,17 @@ def run_eval(provider: util.LlmProvider, args: argparse.Namespace):
         f"num_concurrent={EVAL_CONCURRENT},tokenized_requests=False"
     )
     logger.info(f"Run evaluation: {provider} with model_args: {model_args}")
+
+    # check
+    if EVAL_CHECK_MODEL:
+        headers = {"Content-Type": "application/json"}
+        if provider.api_key:
+            headers["Authorization"] = f"Bearer {provider.api_key}"
+        real_models = util.get_model_list(provider.endpoint+"/models", headers)
+        #print(f"models: {real_models}")
+        if provider.model not in real_models:
+            logger.error(f"Dismatched model name {provider.model}, candicates: {real_models}")
+            return
 
     # prepare tasks
     task_manager = TaskManager()

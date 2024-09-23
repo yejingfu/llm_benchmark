@@ -158,6 +158,17 @@ def get_model(url: str, headers = None)->Optional[str]:
     model_list = res.json().get("data", [])
     return model_list[0]["id"] if model_list else None
 
+def get_model_list(url: str, headers = None)->Optional[List[str]]:
+    res = requests.get(url, headers = headers)
+    model_list = res.json().get("data", [])
+    if model_list and len(model_list) > 0:
+        models = []
+        for m in model_list:
+            models.append(m["id"])
+        return models
+    else:
+        return None
+
 def get_llm_provider(config_file:str) -> List[LlmProvider]:
     providers = []
     if os.path.isfile(config_file):
