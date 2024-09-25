@@ -8,9 +8,12 @@ import util
 EVAL_MODEL="local-completions"
 ## reference: https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks
 EVAL_TASKS="mmlu,gsm8k,gpqa,bbh,mathqa"
-EVAL_CONCURRENT=20
+EVAL_CONCURRENT=10
 EVAL_LOG_SAMPLE=True
 EVAL_CHECK_MODEL=False
+EVAL_FEWSHOT=None
+EVAL_BS=None
+EVAL_LIMIT=10
 
 try:
     import lm_eval
@@ -24,13 +27,18 @@ except ImportError:
 def run_eval(provider: util.LlmProvider, args: argparse.Namespace):
     if args.tokenizer is None or not os.path.exists(args.tokenizer):
         raise ValueError("Invalid tokenizer")
-    model_args = (f"base_url={provider.endpoint}/completions,"
-        f"tokenizer={args.tokenizer},"
-        f"model={provider.model},"
-        f"num_concurrent={EVAL_CONCURRENT},tokenized_requests=False"
+    model_args = (f"base_url={provider.endpoint}/completions"
+        f",tokenizer={args.tokenizer}"
+        f",model={provider.model}"
+        f",num_concurrent={EVAL_CONCURRENT},tokenized_requests=False"
+        f",device=cpu"
     )
     logger.info(f"Run evaluation: {provider} with model_args: {model_args}")
 
+    # set api_key
+    if provider.api_key:
+        os.putenv("OPENAI_API_KEY", provider.api_key)
+    gen_args = None
     # check
     if EVAL_CHECK_MODEL:
         headers = {"Content-Type": "application/json"}
@@ -43,9 +51,19 @@ def run_eval(provider: util.LlmProvider, args: argparse.Namespace):
             return
 
     # prepare tasks
-    task_manager = TaskManager()
     tasks = args.tasks if args.tasks is not None else EVAL_TASKS
     tasks = tasks.split(",")
+    tasks2 = []
+    for t in tasks:
+        if t == "mmlu":
+            #tasks2.append("mmlu_stem")
+            #tasks2.append("mmlu_social_sciences")
+            tasks2.append("mmlu_humanities")
+            #tasks2.append("mmlu_other")
+        else:
+            tasks2.append(t)
+    tasks = tasks2
+    task_manager = TaskManager()
     task_names = task_manager.match_tasks(tasks)
     task_missed = [t for t in tasks if t not in task_names]
     logger.info(f"Evaluation tasks: {task_names}, missed tasks: {task_missed}")
@@ -53,7 +71,17 @@ def run_eval(provider: util.LlmProvider, args: argparse.Namespace):
     # run
     start_time = time.perf_counter()
     tracker = EvaluationTracker()
-    results = lm_eval.simple_evaluate(model=EVAL_MODEL, model_args=model_args, tasks=task_names, evaluation_tracker=tracker, log_samples=EVAL_LOG_SAMPLE)
+    results = lm_eval.simple_evaluate(
+        model=EVAL_MODEL,
+        model_args=model_args,
+        tasks=task_names,
+        num_fewshot=EVAL_FEWSHOT,
+        limit=EVAL_LIMIT,
+        batch_size=EVAL_BS,
+        evaluation_tracker=tracker,
+        log_samples=EVAL_LOG_SAMPLE,
+        gen_kwargs=gen_args,
+    )
     duration = time.perf_counter() - start_time
     samples = results.pop("samples") if EVAL_LOG_SAMPLE else None
     tracker.save_results_aggregated(results=results, samples=samples)
