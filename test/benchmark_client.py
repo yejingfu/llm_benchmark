@@ -111,6 +111,7 @@ def main(args: argparse.Namespace):
     output += f"tpot(Median, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
     output += f"tps(Median, P90, P99): {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
     output += f"throughput(input, output): {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}\n"
+    output += f"rps: {len(contexts)/e2e_duration:.3f}\n"
     output += f"num erros: {len(metrics.errors)}\n"
     print(output)
     if args.log_file:
