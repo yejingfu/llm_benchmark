@@ -89,7 +89,7 @@ class InputParameter:
 
 
 class AysncRequestSender:
-    def __init__(self, endpoint: str, model: str, api_key: str, sys_prompt: Optional[str], stream: bool, ignore_eos: bool, verbose: bool):
+    def __init__(self, endpoint: str, model: str, api_key: Optional[str], sys_prompt: Optional[str], stream: Optional[bool], ignore_eos: Optional[bool], verbose: Optional[bool]):
         self.endpoint = endpoint
         self.model = model
         self.headers = OrderedDict({"Content-Type": "application/json"})
@@ -125,92 +125,94 @@ class AysncRequestSender:
                 await semaphore.acquire()
             tasks.append(asyncio.create_task(self._update_sem(semaphore, 1, 60, parallel - 1, num)))
         for i in range(num):
-            task = asyncio.create_task(self._post_one_request(semaphore, contexts[i], chat, extra))
+            task = asyncio.create_task(self._post_one_request_with_semaphore(semaphore, contexts[i], chat, extra))
             tasks.append(task)
             task.add_done_callback(lambda _: progress_bar.update())
         await asyncio.gather(*tasks)
         progress_bar.close()
 
-    async def _post_one_request(self, semaphore: asyncio.Semaphore, ctx: Context, chat: bool, extra: Dict[str, Any]):
+    async def _post_one_request_with_semaphore(self, semaphore: asyncio.Semaphore, ctx: Context, chat: bool, extra: Dict[str, Any]):
         async with semaphore:
-            async with aiohttp.ClientSession(timeout=AIOHTTP_TIMEOUT) as session:
-                ## prepare header, payload and params
-                payload = {
-                    "model": self.model,
-                    "temperature": 0.8,
-                    "top_p": 1.0,
-                    "best_of": 1,
-                    "max_tokens": ctx.max_tokens,
-                    **extra,
-                }
-                if self.stream is not None:
-                    payload["stream"] = self.stream
-                if self.ignore_eos is not None:
-                    payload["ignore_eos"] = self.ignore_eos
-                if chat:
-                    payload["messages"] = []
-                    if self.sys_prompt is not None:
-                        payload["messages"].append({"role": "system", "content": self.sys_prompt})
-                    payload["messages"].append({"role": "user", "content": ctx.prompt})
-                    url = self.endpoint + "/chat/completions"
-                else:
-                    if self.sys_prompt is not None:
-                        payload["prompt"] = f"<s>[INST] <<SYS>>\n{self.sys_prompt}<</SYS>>\n\n{ctx.prompt} [/INST]"
-                    else:
-                        payload["prompt"] = f"<s>[INST] {ctx.prompt} [/INST]"
-                    url = self.endpoint + "/completions"
-                if self.verbose and ctx.index == 0:
-                    logger.info(f"URL: {url}, payload: {payload}")
-                ## post now
-                if self.verbose:
-                    logger.info(f"Send request[{ctx.index}], {ctx.prompt_len}, {ctx.max_tokens}")
-                request_start_time = time.perf_counter()
-                async with session.post(url, headers = self.headers, json = payload) as res:
-                    if res.status != 200:
-                        text = await res.text()
-                        ctx.error = f"{res.status}--{res.reason}: {text}"
-                    else:
-                        async for chunk_bytes in res.content:
-                            chunk_bytes = chunk_bytes.strip()
-                            if not chunk_bytes:
-                                continue
-                            try:
-                                chunk = chunk_bytes.decode("utf-8")
-                                if chunk.startswith("data: "):
-                                    chunk = chunk[6:]
-                                #print(f"==== chunk: ++{chunk}++")
-                                if chunk == ": OPENROUTER PROCESSING":
-                                    continue
-                                if chunk == "[DONE]":
-                                    ctx.e2e_latency = time.perf_counter() - request_start_time
-                                else:
-                                    obj = json.loads(chunk)
-                                    content = None
-                                    if "choices" in obj:
-                                        choice0 = obj["choices"][0]
-                                        if "text" in choice0: ## completions API
-                                            content = choice0["text"]
-                                        elif "delta" in choice0: ## chat-completions API
-                                            #if "role" in choice0["delta"] and choice0["delta"]["role"] == "assistant" and "content" in choice0["delta"]:
-                                            if "content" in choice0["delta"]:
-                                                content = choice0["delta"]["content"]
-                                    if ctx.ttft is None:
-                                        ctx.ttft = time.perf_counter() - request_start_time
-                                    if content is not None:
-                                        ## print
-                                        #print(content, end="", flush=True)
-                                        ctx.generated += content
-                            except json.decoder.JSONDecodeError as err:
-                                logger.warning(f"Failed to load json string: {chunk}, error: {err}")
-                                break
-                            except Exception as err:
-                                logger.warning(f"Failed to handle streaming chunk: {res.status}, error: {err}")
-                                break
+            url = self.endpoint+"/chat/completions" if chat else self.endpoint+"/completions"
+            await self.do_post_request(url, ctx, chat, extra)
 
-                if ctx.e2e_latency < 0.0001:
-                    ctx.e2e_latency = time.perf_counter() - request_start_time
-                if self.verbose:
-                    logger.info(f"Finished request[{ctx.index}], duration: {ctx.e2e_latency}")
+    async def do_post_request(self, url: str, ctx: Context, chat: bool, extra: Dict[str, Any]):
+        async with aiohttp.ClientSession(timeout=AIOHTTP_TIMEOUT) as session:
+            ## prepare header, payload and params
+            payload = {
+                "model": self.model,
+                "temperature": 0.8,
+                "top_p": 1.0,
+                "best_of": 1,
+                "max_tokens": ctx.max_tokens,
+                **extra,
+            }
+            if self.stream is not None:
+                payload["stream"] = self.stream
+            if self.ignore_eos is not None:
+                payload["ignore_eos"] = self.ignore_eos
+            if chat:
+                payload["messages"] = []
+                if self.sys_prompt is not None:
+                    payload["messages"].append({"role": "system", "content": self.sys_prompt})
+                payload["messages"].append({"role": "user", "content": ctx.prompt})
+            else:
+                if self.sys_prompt is not None:
+                    payload["prompt"] = f"<s>[INST] <<SYS>>\n{self.sys_prompt}<</SYS>>\n\n{ctx.prompt} [/INST]"
+                else:
+                    payload["prompt"] = f"<s>[INST] {ctx.prompt} [/INST]"
+            if self.verbose and ctx.index == 0:
+                logger.info(f"URL: {url}, payload: {payload}")
+            ## post now
+            if self.verbose:
+                logger.info(f"Send request[{ctx.index}], {ctx.prompt_len}, {ctx.max_tokens}")
+            request_start_time = time.perf_counter()
+            async with session.post(url, headers = self.headers, json = payload) as res:
+                if res.status != 200:
+                    text = await res.text()
+                    ctx.error = f"{res.status}--{res.reason}: {text}"
+                else:
+                    async for chunk_bytes in res.content:
+                        chunk_bytes = chunk_bytes.strip()
+                        if not chunk_bytes:
+                            continue
+                        try:
+                            chunk = chunk_bytes.decode("utf-8")
+                            if chunk.startswith("data: "):
+                                chunk = chunk[6:]
+                            #print(f"==== chunk: ++{chunk}++")
+                            if chunk == ": OPENROUTER PROCESSING":
+                                continue
+                            if chunk == "[DONE]":
+                                ctx.e2e_latency = time.perf_counter() - request_start_time
+                            else:
+                                obj = json.loads(chunk)
+                                content = None
+                                if "choices" in obj:
+                                    choice0 = obj["choices"][0]
+                                    if "text" in choice0: ## completions API
+                                        content = choice0["text"]
+                                    elif "delta" in choice0: ## chat-completions API
+                                        #if "role" in choice0["delta"] and choice0["delta"]["role"] == "assistant" and "content" in choice0["delta"]:
+                                        if "content" in choice0["delta"]:
+                                            content = choice0["delta"]["content"]
+                                if ctx.ttft is None:
+                                    ctx.ttft = time.perf_counter() - request_start_time
+                                if content is not None:
+                                    ## print
+                                    #print(content, end="", flush=True)
+                                    ctx.generated += content
+                        except json.decoder.JSONDecodeError as err:
+                            logger.warning(f"Failed to load json string: {chunk}, error: {err}")
+                            break
+                        except Exception as err:
+                            logger.warning(f"Failed to handle streaming chunk: {res.status}, error: {err}")
+                            break
+
+            if ctx.e2e_latency < 0.0001:
+                ctx.e2e_latency = time.perf_counter() - request_start_time
+            if self.verbose:
+                logger.info(f"Finished request[{ctx.index}], duration: {ctx.e2e_latency}")
 
 def calculate_metrics(tokenizer: AutoTokenizer, contexts: List[Context], duration: float) -> Optional[Metrics]:
     if len(contexts) == 0:
