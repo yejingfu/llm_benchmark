@@ -8,7 +8,6 @@ import time
 import aiohttp
 import requests
 from urllib.parse import urlparse
-from loguru import logger
 from tqdm.asyncio import tqdm
 from dataclasses import dataclass, field
 from typing import AsyncGenerator, List, Optional, Tuple
@@ -167,8 +166,8 @@ async def async_request_openai_completions(ctx: CompletionContext, url: str, api
                                     ctx.itl.append(timestamp - most_recent_timestamp)
                                 most_recent_timestamp = timestamp
                                 ctx.generated += text
-                    if not ctx.stream:
-                        print(ctx.generated)
+                    #if not ctx.stream:
+                    #    print(ctx.generated)
                     if ctx.e2e_latency < 0.0001:
                         ctx.e2e_latency = time.perf_counter() - st_start
                 else:
@@ -205,9 +204,9 @@ async def async_generate_embeddings(url: str, input: str, model_name: str, api_k
                             output = EmbeddingOutput(embeddings=data["data"][0]["embedding"], prompt_len=data["usage"]["prompt_tokens"], total_len=data["usage"]["total_tokens"])
 
                 else:
-                    logger.error(f"Failed to generate embedddings, error: {response.status}, {response.reason}")
+                    print(f"Failed to generate embedddings, error: {response.status}, {response.reason}")
         except Exception as ex:
-            logger.error(f"Exception raised when generate embeddings: {ex}")
+            print(f"Exception raised when generate embeddings: {ex}")
         return output
 
 def check_health(url: str, ) -> bool:
@@ -227,7 +226,13 @@ def get_version(url: str):
 def get_model(url: str, headers = None)->Optional[str]:
     res = requests.get(url, headers = headers)
     model_list = res.json().get("data", [])
-    return model_list[0]["id"] if model_list else None
+    if isinstance(model_list, dict) and "models" in model_list:
+        model_list = model_list["models"]
+    if isinstance(model_list, list):
+        if len(model_list) > 0:
+            if "id" in model_list[0]:
+                return model_list[0]["id"]
+    return None
 
 def get_model_list(url: str, headers = None)->Optional[List[str]]:
     res = requests.get(url, headers = headers)
