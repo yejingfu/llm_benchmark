@@ -1,0 +1,25 @@
+From a158b5bede18254e55d9e9f1681c069939d586ea Mon Sep 17 00:00:00 2001
+From: linke <linke@pplabs.org>
+Date: Tue, 24 Sep 2024 10:25:30 +0800
+Subject: [PATCH] Update setuptools
+
+Signed-off-by: linke <linke@pplabs.org>
+---
+ Dockerfile | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Dockerfile b/Dockerfile
+index fd7a0df6..02a2e609 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -172,6 +172,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
+ 
+ COPY otel otel
+ RUN python3 -m pip install opentelemetry-sdk opentelemetry-api opentelemetry-exporter-otlp opentelemetry-semantic-conventions-ai
++RUN python3 -m pip install -U setuptools
+ 
+ #################### vLLM installation IMAGE ####################
+ 
+-- 
+2.34.1
+
