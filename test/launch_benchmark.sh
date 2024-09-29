@@ -10,12 +10,12 @@ BM_TOKENIZER_PATH=
 BM_DATASET_PATH=
 BM_CHAT=0
 BM_ADD_SYS_PROMPT=0
-BM_NUM_REQUESTS=2000
+BM_NUM_REQUESTS=120
 
 ## set parallels to 1 to test the single batch, which can get max speed (tps)
-parallels=(1 10 20 30)
+parallels=(1 5 10)
 ## pair: input-len, output-len
-request_len=(1000 500 1800 200)
+request_len=(1000 100 5000 500 10000 1000 20000 2000)
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
