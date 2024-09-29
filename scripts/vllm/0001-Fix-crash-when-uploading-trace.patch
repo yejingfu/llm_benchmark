@@ -1,0 +1,26 @@
+From 2c2e0496ec5fca43dc82e923bd5d64f32f11296b Mon Sep 17 00:00:00 2001
+From: linke <linke@pplabs.org>
+Date: Sun, 29 Sep 2024 17:07:29 +0800
+Subject: [PATCH] Fix crash when uploading trace
+
+Signed-off-by: linke <linke@pplabs.org>
+---
+ vllm/engine/llm_engine.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/vllm/engine/llm_engine.py b/vllm/engine/llm_engine.py
+index dfdbc22e..2ead918c 100644
+--- a/vllm/engine/llm_engine.py
++++ b/vllm/engine/llm_engine.py
+@@ -1622,7 +1622,7 @@ class LLMEngine:
+ 
+         for scheduled_seq_group in scheduler_outputs.scheduled_seq_groups:
+             seq_group = scheduled_seq_group.seq_group
+-            if seq_group.is_finished():
++            if seq_group.is_finished() and seq_group.metrics.finished_time is not None:
+                 self.create_trace_span(seq_group)
+ 
+     def create_trace_span(self, seq_group: SequenceGroup) -> None:
+-- 
+2.34.1
+
