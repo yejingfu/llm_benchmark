@@ -1,7 +1,7 @@
-From 796ca8fd9e949f8ef84811b1c9cef4edd31e4ac8 Mon Sep 17 00:00:00 2001
+From 45ded93349fedc9517ff9c6bf99fb1841e69ac6a Mon Sep 17 00:00:00 2001
 From: linke <linke@pplabs.org>
-Date: Wed, 28 Aug 2024 18:54:04 +0800
-Subject: [PATCH 2/3] Upload vllm log to oss when crash
+Date: Tue, 8 Oct 2024 11:38:15 +0800
+Subject: [PATCH] Upload vllm log to oss when crash
 
 set env LOG_UPLOAD_ENDPOINT for oss endpoint, can be "cos" or "aws"
 set env LOG_UPLOAD_LOCATION for the local path to log files storage
@@ -13,21 +13,17 @@ Signed-off-by: linke <linke@pplabs.org>
  1 file changed, 11 insertions(+)
 
 diff --git a/vllm/entrypoints/launcher.py b/vllm/entrypoints/launcher.py
-index 3598872b..d9196dfd 100644
+index 5dcf50bd..ca198cca 100644
 --- a/vllm/entrypoints/launcher.py
 +++ b/vllm/entrypoints/launcher.py
-@@ -11,6 +11,8 @@ from vllm.engine.async_llm_engine import AsyncEngineDeadError
- from vllm.engine.protocol import AsyncEngineClient
+@@ -11,9 +11,18 @@ from vllm.engine.async_llm_engine import AsyncEngineDeadError
+ from vllm.engine.multiprocessing import MQEngineDeadError
  from vllm.logger import init_logger
  from vllm.utils import find_process_using_port
 +import os
 +import subprocess
  
  logger = init_logger(__name__)
- 
-@@ -67,6 +69,13 @@ async def serve_http(app: FastAPI, engine: AsyncEngineClient,
-         logger.info("Gracefully stopping http server")
-         return server.shutdown()
  
 +def _upload_log_file():
 +    exec_file = "/vllm-workspace/otel/oss-upload-tool"
@@ -37,18 +33,18 @@ index 3598872b..d9196dfd 100644
 +        ret = subprocess.run([exec_file, "-d", location, "-e", ep], capture_output=True)
 +        logger.info(f"Upload log files from {location} to {ep}, result: {ret}")
  
- def _add_shutdown_handlers(app: FastAPI, server: uvicorn.Server,
-                            engine: AsyncEngineClient) -> None:
-@@ -77,6 +86,7 @@ def _add_shutdown_handlers(app: FastAPI, server: uvicorn.Server,
+ async def serve_http(app: FastAPI, **uvicorn_kwargs: Any):
+     logger.info("Available routes are:")
+@@ -66,6 +75,7 @@ def _add_shutdown_handlers(app: FastAPI, server: uvicorn.Server) -> None:
          """On generic runtime error, check to see if the engine has died.
          It probably has, in which case the server will no longer be able to
          handle requests. Trigger a graceful shutdown with a SIGTERM."""
 +        _upload_log_file()
+         engine = request.app.state.engine_client
          if (not envs.VLLM_KEEP_ALIVE_ON_ENGINE_DEATH and engine.errored
                  and not engine.is_running):
-             logger.fatal("AsyncLLMEngine has failed, terminating server "
-@@ -94,6 +104,7 @@ def _add_shutdown_handlers(app: FastAPI, server: uvicorn.Server,
-     async def engine_dead_handler(_, __):
+@@ -84,6 +94,7 @@ def _add_shutdown_handlers(app: FastAPI, server: uvicorn.Server) -> None:
+     async def async_engine_dead_handler(_, __):
          """Kill the server if the async engine is already dead. It will
          not handle any further requests."""
 +        _upload_log_file()
