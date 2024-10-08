@@ -12,6 +12,9 @@ function main() {
     if [ "$#" -eq 0 ];then
         usage
     fi
+    if [ x"$1" = x"-h" ]; then
+        usage
+    fi
     local pid=$1
     LOG INFO "Find container by process ID: ${pid}"
     containers=$(docker ps --format {{.Names}})
