@@ -1,4 +1,7 @@
 __pycache__
 test/data
 test/ShareGPT_V3_unfiltered_cleaned_split.json
+scripts/sillytavern/docker/config
+scripts/sillytavern/docker/data
+scripts/sillytavern/docker/plugins
 
