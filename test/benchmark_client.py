@@ -71,14 +71,14 @@ def main(args: argparse.Namespace):
     contexts = []
     for i in range(len(samples)):
         d = samples[i]
-        if i < PRINT_SAMPLES and args.print_verbose:
+        if i < PRINT_SAMPLES and args.verbose:
             logger.info(f"Request[{i}]: {d[1]} / {d[2]}, {d[0][0: 100]}")
         contexts.append(Context(index=i, prompt=d[0], prompt_len=d[1], max_tokens=d[2]))
 
     # send requests async
     extra = {}
     ignore_eos = False if args.disable_ignore_eos else True
-    sender = AysncRequestSender(args.endpoint, args.model, args.api_key, SYS_PROMPT if args.add_system_prompt else None, False if args.disable_stream else True, ignore_eos, args.print_verbose)
+    sender = AysncRequestSender(args.endpoint, args.model, args.api_key, SYS_PROMPT if args.add_system_prompt else None, False if args.disable_stream else True, ignore_eos, args.verbose)
     logger.info("Warmup")
     start_time = time.perf_counter()
     asyncio.run(sender.post_batch_requests_async(contexts[0:2], args.api_kind == "chat", 2, extra))
@@ -103,16 +103,29 @@ def main(args: argparse.Namespace):
        if not args.disable_warn_dismatch_output_len and abs(ctx.output_len - ctx.max_tokens) > 10:
             logger.warning(f"[{ctx.index}] Mismatched output length: expected {ctx.max_tokens}, got {ctx.output_len}")
     e2e_latency_p, ttft_p, tpot_p, tps_p = metrics.get_percentile([50, 90, 99])
-    output = f"\n===== Metrics @ {datetime.now().strftime('%m%d:%H-%M')} , duration: {e2e_duration} =====\n"
-    output += f"model: {args.model}, policy: {args.sampling_policy}, prompt-len:{contexts[i].prompt_len}, output-len:{contexts[i].max_tokens}, parallel: {args.parallel}\n"
-    output += f"prompt-len: {contexts[0].prompt_len}, output-len: {contexts[0].max_tokens}, parallel: {args.parallel} \n"
-    output += f"e2e latency(Median, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
-    output += f"ttft(Median, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
-    output += f"tpot(Median, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
-    output += f"tps(Median, P90, P99): {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
-    output += f"throughput(input, output): {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}\n"
+    prompt_len, gen_len = 0, 0
+    if args.sampling_policy == "fixed":
+        prompt_len, gen_len = args.fixed_prompt_len, args.fixed_output_len
+    elif args.sampling_policy == "normal":
+        prompt_len, gen_len = args.prompt_len_mean, args.output_len_mean
+    output = f"\n[BeginMetrics] {datetime.now().strftime('%m%d:%H-%M')}\n"
+    output += f"log: {args.log_file}\n"
+    output += f"model: {args.model}\n"
+    output += f"sampling-policy: {args.sampling_policy}\n"
+    output += f"sequence-length: {prompt_len}, {gen_len}\n"
+    output += f"batch-size: {args.parallel}\n"
+    output += f"e2e-latency(P50, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
+    output += f"ttft(P50, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
+    output += f"tpot(P50, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
+    output += f"tps(P50, P90, P99): {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
+    output += f"throughput: {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}\n"
     output += f"rps: {len(contexts)/e2e_duration:.3f}\n"
-    output += f"num erros: {len(metrics.errors)}\n"
+    output += f"errors: {len(metrics.errors)}\n"
+    if args.record_raw_metrics and args.log_file:
+        output += f"raw-ttft: {metrics.ttft}\n"
+        output += f"raw-tpot: {metrics.tpot}\n"
+        output += f"raw-tps: {metrics.tps}\n"
+    output += f"[EndMetrics]\n"
     print(output)
     if args.log_file:
         with open(args.log_file, "a") as f:
@@ -150,8 +163,10 @@ if __name__ == "__main__":
     parser.add_argument("--disable-stream", action="store_true", help="Disable stream mode")
     parser.add_argument("--disable-ignore-eos", action="store_true", help="Ignore EOS of the output")
     parser.add_argument("--disable-warn-dismatch-output-len", action="store_true", help="warn when generated tokens number is not equal to expected output_len")
+    # log
     parser.add_argument("--log-file", type=str, help="file to save log information")
-    parser.add_argument("--print-verbose", action="store_true", help="print in verbose mode")
+    parser.add_argument("--record-raw-metrics", action="store_true", help="Dump raw metrics like TTFT or TPOT")
+    parser.add_argument("--verbose", action="store_true", help="print in verbose mode")
     args = parser.parse_args()
 
     # set_ulimit: target_soft_limit=65535

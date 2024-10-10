@@ -11,11 +11,13 @@ BM_DATASET_PATH=
 BM_CHAT=0
 BM_ADD_SYS_PROMPT=0
 BM_NUM_REQUESTS=120
+BM_PRINT_RAW_METRICS=0
+BM_LOG_FILE=
 
 ## set parallels to 1 to test the single batch, which can get max speed (tps)
-parallels=(1 5 10)
+parallels=(1 5 10 15 20)
 ## pair: input-len, output-len
-request_len=(1000 100 5000 500 10000 1000 20000 2000)
+request_len=(1000 100 3000 300 5000 500 10000 1000 20000 2000)
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
@@ -26,6 +28,8 @@ function usage() {
     LOG INFO "  --chat (optional) If set, call LLM chat-completions API for testing"
     LOG INFO "  --num-requests (optional) The total requests send to server for benchmark, default: $BM_NUM_REQUESTS"
     LOG INFO "  --add-sys-prompt (optional) Prepend system prompt prefix, using to test the prefix caching features"
+    LOG INFO "  --log-file (optional) Save the output to file if set"
+    LOG INFO "  --print-raw (optional) Print the raw metrics data like TTFT or TPOT"
     exit
 }
 
@@ -49,9 +53,12 @@ function run() {
     if [ $BM_ADD_SYS_PROMPT -eq 1 ]; then
         args="$args --add-system-prompt"
     fi
-    dump_file=$(date "+%Y-%m-%d-%H%M%S.txt")
-    args="$args --log-file $dump_file"
-    echo "Save result to $dump_file"
+    if [ x"$BM_LOG_FILE" != x"" ]; then
+        args="$args --log-file $BM_LOG_FILE"
+    fi
+    if [ $BM_PRINT_RAW_METRICS -eq 1 ]; then
+        args="$args --record-raw-metrics"
+    fi
 
     num_req_len=${#request_len[@]}
     for i in $(seq 0 2 $((num_req_len-2)));do
@@ -65,7 +72,8 @@ function run() {
             else
                 args2="$args2 --num-requests $BM_NUM_REQUESTS"
             fi
-            echo "===> [Run]: python $CUR_DIR/benchmark_client.py $args2"
+            echo "==== [Run]: python $CUR_DIR/benchmark_client.py $args2"
+            echo ""
             python $CUR_DIR/benchmark_client.py $args2
         done
     done
@@ -109,6 +117,15 @@ function main() {
     --add-sys-prompt)
         shift
         BM_ADD_SYS_PROMPT=1
+        ;;
+    --log-file)
+        shift
+        BM_LOG_FILE=$1
+        shift
+        ;;
+    --print-raw)
+        shift
+        BM_PRINT_RAW_METRICS=1
         ;;
     *)
         usage
