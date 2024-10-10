@@ -225,6 +225,8 @@ def get_version(url: str):
 
 def get_model(url: str, headers = None)->Optional[str]:
     res = requests.get(url, headers = headers)
+    if res.status_code != 200:
+        raise RuntimeError(f"Failed to get version({res.status_code}): {res.reason}")
     model_list = res.json().get("data", [])
     if isinstance(model_list, dict) and "models" in model_list:
         model_list = model_list["models"]
