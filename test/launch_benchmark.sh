@@ -32,9 +32,9 @@ BM_PRINT_RAW_METRICS=0
 BM_LOG_FILE=
 
 ## set parallels to 1 to test the single batch, which can get max speed (tps)
-parallels=(1 5 10 15 20)
+parallels=(1 2 4 8 10 15)
 ## pair: input-len, output-len
-request_len=(1000 100 3000 300 5000 500 10000 1000 20000 2000)
+request_len=(1000 100 3000 300 5000 500 6000 600 10000 1000)
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
