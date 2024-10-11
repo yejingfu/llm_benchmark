@@ -55,8 +55,8 @@ def plot_bars_throughput(ax, labels, dataset):
     bar_pad = 1
     bar_width = 0.16
     num_bars = len(labels)
-    num_blocks = 2
-    xticks = ["in(", "out("]
+    num_blocks = 3
+    xticks = ["in+out(", "in(", "out("]
     xticks_pos = None
     for i in range(num_bars):
         pos=[]
@@ -81,7 +81,7 @@ def plot_group_bars(kind, data, bss, percent):
             if bss[i] in data[key]:
                 dataset.append(data[key][bss[i]])
             elif kind == "throughput":
-                dataset.append([0, 0])
+                dataset.append([0, 0, 0])
             else:
                 dataset.append([0, 0, 0, 0])
         #print(f"labels: {labels}, dataset: {dataset}")
@@ -155,6 +155,7 @@ def load_metrics_from_file(file_path: str) -> List[MetricsData]:
                 line = line.split(":")[1].strip()
                 thp = line.split(",")
                 cur_metrics.throughput = [float(thp[0].strip()), float(thp[1].strip())]
+                cur_metrics.throughput.insert(0, cur_metrics.throughput[0] + cur_metrics.throughput[1])
             elif line.startswith("rps"):
                 cur_metrics.rps = float(line.split(":")[1].strip())
             elif line.startswith("raw-ttft"):
