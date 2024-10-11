@@ -19,7 +19,6 @@ from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizer
 
 PRINT_GENERATE_TEXT=False
 STRICT_SEMAPHORE=False
-PERCENTILES = [25, 50, 75, 90, 95, 99, 99.9, 99.99]
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 
 @dataclass
@@ -35,6 +34,9 @@ class Metrics:
 
     def get_percentile(self, percent):
         return np.percentile(self.e2e_latency, percent), np.percentile(self.ttft, percent), np.percentile(self.tpot, percent), np.percentile(self.tps, percent)
+
+    def get_avg(self):
+        return np.mean(self.e2e_latency), np.mean(self.ttft), np.mean(self.tpot), np.mean(self.tps)
 
 @dataclass
 class Context:

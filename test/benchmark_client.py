@@ -103,6 +103,7 @@ def main(args: argparse.Namespace):
        if not args.disable_warn_dismatch_output_len and abs(ctx.output_len - ctx.max_tokens) > 10:
             logger.warning(f"[{ctx.index}] Mismatched output length: expected {ctx.max_tokens}, got {ctx.output_len}")
     e2e_latency_p, ttft_p, tpot_p, tps_p = metrics.get_percentile([50, 90, 99])
+    e2e_latency_avg, ttft_avg, tpot_avg, tps_avg = metrics.get_avg()
     prompt_len, gen_len = 0, 0
     if args.sampling_policy == "fixed":
         prompt_len, gen_len = args.fixed_prompt_len, args.fixed_output_len
@@ -114,10 +115,10 @@ def main(args: argparse.Namespace):
     output += f"sampling-policy: {args.sampling_policy}\n"
     output += f"sequence-length: {prompt_len}, {gen_len}\n"
     output += f"batch-size: {args.parallel}\n"
-    output += f"e2e-latency(P50, P90, P99): {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
-    output += f"ttft(P50, P90, P99): {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
-    output += f"tpot(P50, P90, P99): {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
-    output += f"tps(P50, P90, P99): {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
+    output += f"e2e-latency(avg, P50, P90, P99): {e2e_latency_avg:0.2f}, {e2e_latency_p[0]:.2f}, {e2e_latency_p[1]:.2f}, {e2e_latency_p[2]:.2f}\n"
+    output += f"ttft(avg, P50, P90, P99): {ttft_avg:.2f}, {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
+    output += f"tpot(avg, P50, P90, P99): {tpot_avg:.2f}, {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
+    output += f"tps(avg, P50, P90, P99): {tps_avg:.2f}, {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
     output += f"throughput: {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}\n"
     output += f"rps: {len(contexts)/e2e_duration:.3f}\n"
     output += f"errors: {len(metrics.errors)}\n"

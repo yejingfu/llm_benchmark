@@ -1,8 +1,25 @@
 #!/bin/bash
 PRG_NAME=$(basename "${BASH_SOURCE[0]}")
 CUR_DIR=$(cd `dirname $0`;pwd)
-source $CUR_DIR/../scripts/base.sh
 
+LOG_SUPPRESS_WARN=0
+LOG() {
+    if [ x"$1" = x"INFO" ]; then
+        shift
+        echo -e "\033[1;36m[INFO] $@\033[0m"
+    elif [ x"$1" = x"ERR" ]; then
+        shift
+        echo -e "\033[1;31m[ERROR] $@\033[0m"
+        exit
+    elif [ x"$1" = x"WARN" ]; then
+        shift
+        if [ $LOG_SUPPRESS_WARN -eq 0 ]; then
+            echo -e "\033[1;32m[WARNING] $@\033[0m"
+        fi
+    else
+        echo "$@"
+    fi
+}
 
 BM_ENDPOINT=
 BM_API_KEY=
