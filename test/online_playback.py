@@ -22,7 +22,6 @@ from transformers import AutoTokenizer
 import llm_request
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
-PRINT_RESPONSE = 0
 PRINT_VERBOSE = True
 PRINT_STREAM_TOKEN = False
 
@@ -44,6 +43,7 @@ class LlmInputArgs:
     messages: List[Tuple] = field(default_factory=list)
     stop: List[str] = field(default_factory=list)
     temperature: Optional[float] = None
+    repetition_penalty: Optional[float] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
     stream: Optional[bool] =  None
@@ -58,25 +58,55 @@ class LlmInputArgs:
     ## response from server
     generated: str = ""
 
+    def get_request_body(self):
+        return {
+            "prompt": self.prompt,
+            "messages": self.messages,
+            "stop": self.stop,
+            "temperature": self.temperature,
+            "repetition_penalty": self.repetition_penalty,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "stream": self.stream,
+            "max_tokens": self.max_tokens
+        }
+
 def new_input_args(type: ApiType, input: str) -> Optional[LlmInputArgs]:
     result = None
     try:
         obj = json.loads(input)
-        if type == ApiType.ChatCompletion and "messages" in obj and len(obj["messages"]) > 0:
-            result = LlmInputArgs(type)
-            for msg in obj["messages"]:
-                if "role" in msg and "content" in msg:
-                    result.messages.append(msg)
-        elif type == ApiType.CompletionStream and "prompt" in obj and len(obj["prompt"]) > 0:
-            result = LlmInputArgs(type)
-            result.prompt = obj["prompt"]
-        result.raw_model = obj["model"] if "model" in obj else ""
-        result.stop = obj["stop"] if "stop" in obj else None
-        result.temperature = obj["temperature"] if "temperature" in obj else None
-        result.top_p = obj["top_p"] if "top_p" in obj else None
-        result.top_k = obj["top_k"] if "top_k" in obj else None
-        result.stream = obj["stream"] if "stream" in obj else None
-        result.max_tokens = obj["max_tokens"] if "max_tokens" in obj else None
+        if type == ApiType.ChatCompletion or type == ApiType.ChatCompletionStream:
+            if "messages" in obj and len(obj["messages"]) > 0:
+                result = LlmInputArgs(type)
+                for msg in obj["messages"]:
+                    if "role" in msg and "content" in msg:
+                        result.messages.append(msg)
+        elif type == ApiType.Completion or type == ApiType.CompletionStream:
+            if "prompt" in obj and len(obj["prompt"]) > 0:
+                result = LlmInputArgs(type)
+                result.prompt = obj["prompt"]
+        if result is not None:
+            for k in obj:
+                v = obj[k]
+                if k == "model":
+                    result.raw_model = v
+                elif k == "temperature":
+                    result.temperature = v
+                elif k == "repetition_penalty":
+                    result.repetition_penalty = v
+                elif k == "stop":
+                    result.stop = v
+                elif k == "top_p":
+                    result.top_p = v
+                elif k == "top_k":
+                    result.top_k = v
+                elif k == "stream":
+                    result.stream = v
+                elif k == "max_tokens":
+                    result.max_tokens = v
+                else:
+                    if k not in ["prompt", "messages"]:
+                        logger.warning(f"not support parameter: {k}: {v}")
     except Exception as e:
         logger.error(f"Invalid request body: {e}, raw data: {input}")
     return result
@@ -272,6 +302,9 @@ def main(args):
                                 if PRINT_STREAM_TOKEN and req_ids is not None:
                                     print(f"Request[{req_ids}]: {b}")
                                 req_input = new_input_args(t, b)
+                                if req_input is None:
+                                    logger.warning(f"invalid request: [{req_ids}]: {b}")
+                                    continue
                                 req_input.index = req_idx
                                 req_input.timestamp = ts
                                 req_input.model = args.model_name
@@ -333,11 +366,13 @@ def main(args):
     elif len(errors) > 0:
         for i in range(len(errors)):
             logger.warning(f"ERROR[{i}]: {errors[i]}")
-    if PRINT_RESPONSE > 0:
-        num = min(PRINT_RESPONSE, len(req_list))
+    if args.print_response > 0:
+        num = min(args.print_response, len(req_list))
         logger.info(f"Print the generated content about the first {num} requests")
         for i in range(num):
-            logger.info(f"[{i}] type: {req_list[i].api_type}, model: {req_list[i].raw_model}, generated: {req_list[i].generated}")
+            print(f"\n=============\nRequest[{i}] type: {req_list[i].api_type}, model: {req_list[i].raw_model}\n")
+            print(f"\n###Request: {req_list[i].get_request_body()}")
+            print(f"\n###Response: {req_list[i].generated}")
     if args.dump is not None:
         save_result_csv(args.dump, contexts)
 
@@ -353,6 +388,7 @@ if __name__ == "__main__":
     parser.add_argument("--requests-ids", type=str, help="Pick the specific requests from file for testing, start from 0, seperated by comma")
     parser.add_argument("--max-num-requests", type=int, default=100, help="Load maximum requests from the file, default is 100")
     parser.add_argument("--parallel", type=int, default=10, help="The num of requests sent in parallel, default is 10")
+    parser.add_argument("--print-response", type=int, default=0, help="The num of the response to print, default is 0")
     parser.add_argument("--dump", type=str, help="The file to save the output data")
 
     args = parser.parse_args()
