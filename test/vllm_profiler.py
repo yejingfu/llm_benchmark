@@ -25,12 +25,14 @@ async def run_profile(args: argparse.Namespace):
         data = json.load(f)
         data = data["data"]
         for d in data:
-            if d["prompt_len"] > 1000:
+            prompt_len = d["prompt_len"]
+            if prompt_len >= args.input_len
                 prompt = d["prompt"]
-                prompt_len = d["prompt_len"]
-                max_tokens = d["output_len"]
+                max_tokens = prompt_len // 10
                 break
-    logger.info(f"Got prompt(len={prompt_len}): {prompt}")
+    if prompt is None:
+        raise RuntimeError("Invalid prompt")
+    logger.info(f"Got prompt(len={prompt_len}, {max_tokens}): {prompt}")
     model_name = util.get_model(args.endpoint + "/models")
     logger.info(f"Serving model name: {model_name}")
 
@@ -61,6 +63,7 @@ if __name__ == "__main__":
         description="Profile vllm server with request."
     )
     parser.add_argument("--endpoint", type=str, help="The LLM serving endpoint, for example: http://localhost:18011/v1")
+    parser.add_argument("--input-len", type=int, default=5000, help="The sequence input length, default is 5000")
     parser.add_argument("--verbose", action="store_true", help="print in verbose mode")
     args = parser.parse_args()
     asyncio.run(run_profile(args))
