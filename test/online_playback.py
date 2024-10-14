@@ -45,6 +45,7 @@ class LlmInputArgs:
     temperature: Optional[float] = None
     repetition_penalty: Optional[float] = None
     top_p: Optional[float] = None
+    min_p: Optional[float] = None
     top_k: Optional[int] = None
     stream: Optional[bool] =  None
     max_tokens: Optional[int] = None
@@ -66,50 +67,53 @@ class LlmInputArgs:
             "temperature": self.temperature,
             "repetition_penalty": self.repetition_penalty,
             "top_p": self.top_p,
+            "min_p": self.min_p,
             "top_k": self.top_k,
             "stream": self.stream,
             "max_tokens": self.max_tokens
         }
 
 def new_input_args(type: ApiType, input: str) -> Optional[LlmInputArgs]:
-    result = None
+    input_args = None
     try:
         obj = json.loads(input)
         if type == ApiType.ChatCompletion or type == ApiType.ChatCompletionStream:
             if "messages" in obj and len(obj["messages"]) > 0:
-                result = LlmInputArgs(type)
+                input_args = LlmInputArgs(type)
                 for msg in obj["messages"]:
                     if "role" in msg and "content" in msg:
-                        result.messages.append(msg)
+                        input_args.messages.append(msg)
         elif type == ApiType.Completion or type == ApiType.CompletionStream:
             if "prompt" in obj and len(obj["prompt"]) > 0:
-                result = LlmInputArgs(type)
-                result.prompt = obj["prompt"]
-        if result is not None:
+                input_args = LlmInputArgs(type)
+                input_args.prompt = obj["prompt"]
+        if input_args is not None:
             for k in obj:
                 v = obj[k]
                 if k == "model":
-                    result.raw_model = v
+                    input_args.raw_model = v
                 elif k == "temperature":
-                    result.temperature = v
+                    input_args.temperature = v
                 elif k == "repetition_penalty":
-                    result.repetition_penalty = v
+                    input_args.repetition_penalty = v
                 elif k == "stop":
-                    result.stop = v
+                    input_args.stop = v
                 elif k == "top_p":
-                    result.top_p = v
+                    input_args.top_p = v
+                elif k == "min_p":
+                    input_args.min_p = v
                 elif k == "top_k":
-                    result.top_k = v
+                    input_args.top_k = v
                 elif k == "stream":
-                    result.stream = v
+                    input_args.stream = v
                 elif k == "max_tokens":
-                    result.max_tokens = v
+                    input_args.max_tokens = v
                 else:
                     if k not in ["prompt", "messages"]:
                         logger.warning(f"not support parameter: {k}: {v}")
     except Exception as e:
         logger.error(f"Invalid request body: {e}, raw data: {input}")
-    return result
+    return input_args
 
 def exec_get_method(url, api_key) -> str:
     try:
@@ -161,6 +165,7 @@ async def _response_chunk_gen(ctx: llm_request.ApiContext, response) -> llm_requ
 
 async def _openai_post_message(ctx: llm_request.ApiContext, phase: llm_request.RequestPhase, response = None):
     args = ctx.user_data
+    assert args is not None
     if phase == llm_request.RequestPhase.End:
         if PRINT_VERBOSE:
             logger.info(f"Finish request[{args.index}]: {args.api_type}, {args.prompt_len} / {args.max_tokens}")
@@ -169,30 +174,33 @@ async def _openai_post_message(ctx: llm_request.ApiContext, phase: llm_request.R
     if PRINT_VERBOSE:
         logger.info(f"Send request[{args.index}]: {args.api_type}, {args.prompt_len} / {args.max_tokens}")
     headers = llm_request.make_headers(auth_token=ctx.api_key)
-    kwargs = {"stream_options": {"include_usage": True}}
     url = ctx.base_url
-    if args is not None:
-        if args.api_type == ApiType.ChatCompletion:
-            url = url + "/chat/completions"
-            kwargs["messages"] = args.messages
-        else:
-            url = url + "/completions"
-            kwargs["prompt"] = args.prompt
-        if args.stop is not None and len(args.stop) > 0:
-            kwargs["stop"] = args.stop
-        if args.temperature is not None:
-            kwargs["temperature"] = args.temperature
-        if args.top_p is not None:
-            kwargs["top_p"] = args.top_p
-        if args.top_k is not None:
-            kwargs["top_k"] = args.top_k
-        if args.stream is not None:
-            kwargs["stream"] = args.stream
-        #else:
-        #    kwargs["stream"] = False
-        if args.max_tokens is not None:
-            kwargs["max_tokens"] = args.max_tokens
-    data = llm_request.make_openai_chat_body(ctx, **kwargs)
+    data = {
+        "model": ctx.model or None,
+        "max_tokens": ctx.max_tokens,
+        "temperature": ctx.temperature,
+        "stream_options": {"include_usage": True},
+    }
+
+    params = args.get_request_body()
+    for k, v in params.items():
+        if v is not None:
+            data[k] = v
+    data["stream"] = True ## ALWAYS set stream to TRUE  !!!!!
+    #data["stream"] = (args.api_type == ApiType.ChatCompletionStream or args.api_type == ApiType.CompletionStream) or None
+    #if data["stream"] != True:
+    #    data.pop("stream")
+    if args.api_type == ApiType.ChatCompletion or args.api_type == ApiType.ChatCompletionStream:
+        url = url + "/chat/completions"
+        del data["prompt"]
+        #data["messages"] = args.messages
+        #data["stream"] = args.api_type == ApiType.ChatCompletionStream
+    else:
+        url = url + "/completions"
+        del data["messages"]
+        #data["prompt"] = args.prompt
+        #data["stream"] = args.api_type == ApiType.CompletionStream
+
     return await llm_request.post(ctx, url, headers, data, _response_chunk_gen)
 
 async def send_requests_batch(args: argparse.Namespace, req_list: List[LlmInputArgs]) -> List[llm_request.ApiContext]:
