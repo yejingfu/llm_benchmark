@@ -32,7 +32,7 @@ BM_PRINT_RAW_METRICS=0
 BM_LOG_FILE=
 
 ## set parallels to 1 to test the single batch, which can get max speed (tps)
-parallels=(1 2 4 8 10 15)
+parallels=(1 2 3 4 5 6 7 8 9 10 12 15)
 ## pair: input-len, output-len
 request_len=(1000 100 3000 300 5000 500 6000 600 10000 1000)
 
