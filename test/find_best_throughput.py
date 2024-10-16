@@ -118,12 +118,12 @@ def main(args: argparse.Namespace):
     show_percentile = ["p90", "p99"]
     for k in results:
         m = results[k]
-        print(f"\n[{k}]\n")
+        print(f"\n[{k}]")
         for kk in m:
             print(f"{kk}") ## (input_len,output_len)
             for p in show_percentile:
                 mm = m[kk][p]
-                print(f"\t[{p}] ttft: {mm['ttft']}, bs: {mm['bs']}, tps: {mm['tps']}, throughput: {int(mm['throughput'])}\n")
+                print(f"\t[{p}] ttft: {mm['ttft']}, bs: {mm['bs']}, tps: {mm['tps']}, throughput: {int(mm['throughput'])}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
