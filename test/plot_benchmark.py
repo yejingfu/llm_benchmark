@@ -38,15 +38,26 @@ def plot_bars_percentile(ax, labels, dataset, percent):
     num_blocks = len(percent)
     xticks = [x+"(" for x in percent]
     xticks_pos = None
+    last_name = None
+    sub_grp_gaps = 0
     for i in range(num_bars):
+        name = labels[i][:labels[i].find("#")]
+        xticks_sep = ""
+        if last_name is None:
+            last_name = name
+        if last_name != name:
+            sub_grp_gaps += 1
+            xticks_sep = "#"
+        last_name = name
         pos=[]
         for j in range(num_blocks):
-            pos.append(bar_width * i + j * block_width)
+            pos.append(bar_width * i + j * block_width + 0.2 * sub_grp_gaps)
             #xticks.append(f"{percent[j]}({dataset[i][j]:.2f})")
-            xticks[j] += f"{dataset[i][j]:.2f},"
+            xticks[j] += f"{xticks_sep}{dataset[i][j]:.2f},"
         ax.bar(pos, dataset[i], width=bar_width, label=labels[i])
         if xticks_pos is None:
             xticks_pos = pos
+        
     xticks = [x[:-1]+")" for x in xticks]
     ax.set_xticks(pos, xticks)
 
@@ -58,11 +69,21 @@ def plot_bars_throughput(ax, labels, dataset):
     num_blocks = 3
     xticks = ["in+out(", "in(", "out("]
     xticks_pos = None
+    last_name = None
+    sub_grp_gaps = 0
     for i in range(num_bars):
+        name = labels[i][:labels[i].find("#")]
+        xticks_sep = ""
+        if last_name is None:
+            last_name = name
+        if last_name != name:
+            sub_grp_gaps += 1
+            xticks_sep = "#"
+        last_name = name
         pos=[]
         for j in range(num_blocks):
-            pos.append(bar_width * i + j * block_width)
-            xticks[j] += f"{int(dataset[i][j])},"
+            pos.append(bar_width * i + j * block_width + 0.2 * sub_grp_gaps)
+            xticks[j] += f"{xticks_sep}{int(dataset[i][j])},"
         ax.bar(pos, dataset[i], width=bar_width, label=labels[i])
         if xticks_pos is None:
             xticks_pos = pos
@@ -89,12 +110,12 @@ def plot_group_bars(kind, data, bss, percent):
             plot_bars_throughput(axes[i], labels, dataset)
         else:
             plot_bars_percentile(axes[i], labels, dataset, percent)
-        #axes[i].set_title(f"{kind}, bs={bss[i]}")
-        axes[i].set_xlabel(f"{kind}, bs={bss[i]}")
-        #axes[i].set_ylabel(kind)
+        lab = "thrput" if kind == "throughput" else kind
+        #axes[i].set_title(f"{lab}, bs={bss[i]}")
+        #axes[i].set_xlabel(f"{lab}, bs={bss[i]}")
+        axes[i].set_ylabel(f"{lab}, bs={bss[i]}")
         axes[i].grid(True)
-        #axes[i].legend(loc="best")
-    fig.subplots_adjust(hspace=0.3)
+    #fig.subplots_adjust(hspace=0.3)
     plt.legend(loc="best")
     #plt.tight_layout()
     plt.show()
@@ -110,7 +131,7 @@ def plot_raw_ttft_tps(metrics):
     plt.legend()
     plt.show()
 
-def load_metrics_from_file(file_path: str) -> List[MetricsData]:
+def load_metrics_from_file(file_path: str, args) -> List[MetricsData]:
     metrics=[]
     print(f"Load metrics from {file_path}")
     if not os.path.isfile(file_path):
@@ -120,6 +141,9 @@ def load_metrics_from_file(file_path: str) -> List[MetricsData]:
     pos2 = name.find("_", pos1+5)
     if pos1 >= 0 and pos2 > pos1:
         name = name[pos1+5:pos2]
+    filter_length = None
+    if args.filter_length is not None:
+        filter_length=args.filter_length.split(",")
     with open(file_path, "r") as f:
         line = f.readline()
         cur_metrics = None
@@ -132,7 +156,12 @@ def load_metrics_from_file(file_path: str) -> List[MetricsData]:
                     line = f.readline()
                     continue
             if line.startswith("[EndMetrics]"):
-                metrics.append(cur_metrics)
+                if filter_length is not None:
+                    cur_length=f"({cur_metrics.input_len};{cur_metrics.output_len})"
+                    if cur_length in filter_length:
+                        metrics.append(cur_metrics)
+                else:
+                    metrics.append(cur_metrics)
                 cur_metrics = None
             if line.startswith("model"):
                 cur_metrics.model = line.split(":")[1].strip()
@@ -173,7 +202,7 @@ def main(args: argparse.Namespace):
     metrics = []
     log_files = args.log_files.split(",")
     for path in log_files:
-        tmp = load_metrics_from_file(path)
+        tmp = load_metrics_from_file(path, args)
         for m in tmp:
             metrics.append(m)
     print(f"Total metrics: {len(metrics)}")
@@ -231,5 +260,6 @@ if __name__ == "__main__":
     parser.add_argument("--plot-bs", type=str, default="all", help=f"Which batch size to show, can be {DEF_PLOT_BS}, default is all")
     parser.add_argument("--plot-precent", type=str, default="all", help=f"Which percentile to show, can be {DEF_PLOT_PERCENT}, default is all")
     parser.add_argument("--plot-raw", action="store_true", help="Draw the raw ttft-tps graph")
+    parser.add_argument("--filter-length", type=str, help="The list of (input_length;output_length) to filter out, seperated by comma")
     args = parser.parse_args()
     main(args)
