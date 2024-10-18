@@ -110,15 +110,16 @@ function run() {
         else
             for i in {0..7};do $bandwidth_test --device=$i ;done
         fi
-        if [ x"tmp" != x"" ]; then
-            export CUDA_VISIBLE_DEVICES=$tmp
-        fi
         LOG INFO "[RUN] $p2p_latency_test"
+        export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
         if [ x"$LOG_FILE" != x"" ]; then
             echo "====[p2p_latency_test]" >> $LOG_FILE
             $p2p_latency_test | tee -a $LOG_FILE
         else
             $p2p_latency_test
+        fi
+        if [ x"$tmp" != x"" ]; then
+            export CUDA_VISIBLE_DEVICES=$tmp
         fi
     fi
 }
