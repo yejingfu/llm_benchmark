@@ -136,11 +136,20 @@ def load_metrics_from_file(file_path: str, args) -> List[MetricsData]:
     print(f"Load metrics from {file_path}")
     if not os.path.isfile(file_path):
         raise RuntimeError(f"Invalid metrics file path: {file_path}")
-    name = os.path.basename(file_path)
-    pos1 = name.find("_gpu_")
-    pos2 = name.find("_", pos1+5)
+    base_name = os.path.basename(file_path)
+    pos1 = base_name.find("_gpu_")
+    pos2 = base_name.find("_", pos1+5)
     if pos1 >= 0 and pos2 > pos1:
-        name = name[pos1+5:pos2]
+        name = base_name[pos1+5:pos2]
+    else:
+        name = base_name
+    model_name = None
+    if args.update_model_name:
+        pos1 = base_name.find("_model")
+        pos2 = base_name.find("_", pos1 + 7)
+        if pos2 < 0:
+            pos2 = base_name.find(".", pos1 + 7)
+        model_name = base_name[pos1+7:pos2]
     filter_length = None
     if args.filter_length is not None:
         filter_length=args.filter_length.split(",")
@@ -164,7 +173,10 @@ def load_metrics_from_file(file_path: str, args) -> List[MetricsData]:
                     metrics.append(cur_metrics)
                 cur_metrics = None
             if line.startswith("model"):
-                cur_metrics.model = line.split(":")[1].strip()
+                if model_name is None:
+                    cur_metrics.model = line.split(":")[1].strip()
+                else:
+                    cur_metrics.model = model_name
             elif line.startswith("sequence-length"):
                 line = line.split(":")[1].strip()
                 lens = line.split(",")
@@ -261,5 +273,6 @@ if __name__ == "__main__":
     parser.add_argument("--plot-precent", type=str, default="all", help=f"Which percentile to show, can be {DEF_PLOT_PERCENT}, default is all")
     parser.add_argument("--plot-raw", action="store_true", help="Draw the raw ttft-tps graph")
     parser.add_argument("--filter-length", type=str, help="The list of (input_length;output_length) to filter out, seperated by comma")
+    parser.add_argument("--update-model-name", action="store_true", help="Update the model name by the file name")
     args = parser.parse_args()
     main(args)
