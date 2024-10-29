@@ -173,7 +173,7 @@ function run() {
     LOG INFO "\nThe benchmark test is completed\n"
     if [ x"$docker_name" != x"" ];then
         LOG INFO "Delete the docker instance: $docker_name"
-        docker rm -f $docker_name
+        remove_docker_container $docker_name
     fi
 }
 
