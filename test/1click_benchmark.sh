@@ -11,7 +11,7 @@ DEF_MODEL_HF_NAMES["l31-70b-fp8"]="yejingfu/Meta-Llama-3.1-70B-Instruct-FP8"
 DEF_GPU_TYPES=("4090" "h100" "h20" "h800" "a100" "a800")
 DEF_TOKENIZER_HF_NAME="yejingfu/Meta-Llama-3.1-8B-Instruct"
 DEF_DS_NAME="ShareGPT_V3_unfiltered_cleaned_split.json"
-DEF_DS_HF_PATH="https://huggingface.co/datasets/yejingfu/ShareGPT_V3/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
+DEF_DS_HF_PATH="datasets/yejingfu/ShareGPT_V3/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
 
 BM_DOCKER_IMAGE="image.paigpu.com/library/ppinfer_vllm:0.6.2.2"
 BM_GPU_TYPE=
@@ -20,6 +20,10 @@ BM_MODEL_NAME=
 BM_MODEL_DIR=
 BM_TOKENIZER_DIR=
 BM_TEST_STRENGTH="high"
+
+if [[ x"$HF_ENDPOINT" = x"" ]];then
+    HF_ENDPOINT="https://huggingface.co"
+fi
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
@@ -51,7 +55,7 @@ function download_model() {
         mkdir -p $dir
     fi
     LOG INFO "Download model from huggingface $hf_name and save to $dir"
-    GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/$hf_name $dir
+    GIT_LFS_SKIP_SMUDGE=1 git clone $HF_ENDPOINT/$hf_name $dir
     pushd $dir
     git lfs pull
     popd
@@ -150,19 +154,19 @@ function main() {
         LOG INFO "Set tokenizer to $BM_TOKENIZER_DIR"
     fi
     if [[ -f "$BM_TOKENIZER_DIR/config.json" ]]; then
-        LOG INFO "Use the existing tokenizer $BM_MODEL_DIR"
+        LOG INFO "Use the existing tokenizer $BM_TOKENIZER_DIR"
     else
-        download_model $DEF_TOKENIZER_HF_NAME $BM_MODEL_DIR
+        download_model $DEF_TOKENIZER_HF_NAME $BM_TOKENIZER_DIR
     fi
     if [[ ! -f "$CUR_DIR/$DEF_DS_NAME" ]]; then
-        LOG INFO "Downloading dataset from: $DEF_DS_HF_PATH"
-        wget $DEF_DS_HF_PATH
+        LOG INFO "Downloading dataset from: $HF_ENDPOINT/$DEF_DS_HF_PATH"
+        wget $HF_ENDPOINT/$DEF_DS_HF_PATH
     fi
     num_gpus=$(count_numbers $BM_GPU_IDS)
     local log_file_path="_gpu_${num_gpus}x${BM_GPU_TYPE}_model_${BM_MODEL_NAME}_$RANDOM.txt"
     local port=$((18000+RANDOM%100))
     server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $BM_MODEL_NAME --model-dir $BM_MODEL_DIR --gpu-ids $BM_GPU_IDS --listen-port $port"
-    client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_MODEL_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
+    client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
     if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
         client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
     elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then

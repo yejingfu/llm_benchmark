@@ -12,6 +12,10 @@ BM_GPU_IDS="0"
 BM_LISTEN_PORT="18011"
 BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --max-model-len 32768 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
 
+if [[ x"$HF_ENDPOINT" = x"" ]]; then
+    HF_ENDPOINT="https://huggingface.co"
+fi
+
 # client side
 BM_ENDPOINT=
 BM_API_KEY=
@@ -84,7 +88,7 @@ function run() {
                 LOG INFO "install git-lfs"
                 apt-get install -y git git-lfs
             fi
-            GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/$BM_HF_MODEL $BM_MODEL_DIR
+            GIT_LFS_SKIP_SMUDGE=1 git clone $HF_ENDPOINT/$BM_HF_MODEL $BM_MODEL_DIR
             pushd $BM_MODEL_DIR
             git lfs pull
             popd
