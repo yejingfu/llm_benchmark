@@ -68,6 +68,8 @@ def main(args: argparse.Namespace):
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     samples = util.load_requests_from_json(tokenizer, args.dataset, args.num_requests, min_in_len, max_in_len, min_out_len, max_out_len)
     logger.info(f"Got {len(samples)} requests")
+    while len(samples) < args.num_requests:
+        samples.append(samples[random.randint(0, len(samples)-1)])
     contexts = []
     for i in range(len(samples)):
         d = samples[i]
@@ -84,7 +86,7 @@ def main(args: argparse.Namespace):
     asyncio.run(sender.post_batch_requests_async(contexts[0:2], args.api_kind == "chat", 2, extra))
     end_time = time.perf_counter()
     logger.info(f"Warmup fininshed in {end_time - start_time} seconds")
-    for i in range(2):
+    for i in range(min(2, len(contexts))):
         contexts[i].clean()
 
     logger.info("Benchmark")
