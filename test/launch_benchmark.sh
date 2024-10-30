@@ -104,7 +104,7 @@ function run() {
         LOG INFO "docker run $docker_args --name $docker_name $BM_IMAGE $server_args"
         docker run $docker_args --name $docker_name $BM_IMAGE $server_args
         try=0
-        while [ $try -lt 10 ]; do
+        while [ $try -lt 20 ]; do
             LOG INFO "Waiting for docker ready ($try): $docker_name..."
             sleep 10
             ret=$(docker logs $docker_name) #> /dev/null 2>&1)
@@ -127,7 +127,7 @@ function run() {
         if [ $try -eq 10 ];then
             docker rm -f $docker_name
             docker_name=
-            LOG ERR "Failed to run docker instance in 100 seconds: $docker_name"
+            LOG ERR "Failed to run docker instance in 200 seconds: $docker_name"
         fi
     fi
 

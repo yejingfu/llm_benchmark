@@ -56,11 +56,10 @@ check_image_exists() {
 
 check_container_exists() {
     local name=$1
-    docker ps -a | grep $name > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        return 1
+    if docker ps -a 2>/dev/null | grep -q "$name";then
+        echo 1
     else
-        return 0
+        echo 0
     fi
 }
 

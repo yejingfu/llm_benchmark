@@ -162,8 +162,11 @@ function main() {
         LOG INFO "Downloading dataset from: $HF_ENDPOINT/$DEF_DS_HF_PATH"
         wget $HF_ENDPOINT/$DEF_DS_HF_PATH
     fi
+    if [[ ! -d out ]]; then
+        mkdir out
+    fi
     num_gpus=$(count_numbers $BM_GPU_IDS)
-    local log_file_path="_gpu_${num_gpus}x${BM_GPU_TYPE}_model_${BM_MODEL_NAME}_$RANDOM.txt"
+    local log_file_path="out/_gpu_${num_gpus}x${BM_GPU_TYPE}_model_${BM_MODEL_NAME}_$RANDOM.txt"
     local port=$((18000+RANDOM%100))
     server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $BM_MODEL_NAME --model-dir $BM_MODEL_DIR --gpu-ids $BM_GPU_IDS --listen-port $port"
     client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
