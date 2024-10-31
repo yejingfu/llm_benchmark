@@ -5,8 +5,10 @@ import argparse
 import time
 from loguru import logger
 import util
+import lm_eval_remote_vllm
 
-EVAL_MODEL="local-completions"
+#EVAL_MODEL="local-completions"
+EVAL_MODEL="remote-vllm"
 ## reference: https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks
 EVAL_TASKS="mmlu,gsm8k,gpqa,bbh,mathqa"
 EVAL_CONCURRENT=10
@@ -59,11 +61,12 @@ def run_eval(args: argparse.Namespace):
     tasks = args.tasks if args.tasks is not None else EVAL_TASKS
     tasks = tasks.split(",")
     tasks2 = []
+    fewshot = None
     for t in tasks:
         if t == "mmlu":
-            #tasks2.append("mmlu_stem")
+            tasks2.append("mmlu_stem")
             #tasks2.append("mmlu_social_sciences")
-            tasks2.append("mmlu_humanities")
+            #tasks2.append("mmlu_humanities")
             #tasks2.append("mmlu_other")
         else:
             tasks2.append(t)
@@ -81,12 +84,12 @@ def run_eval(args: argparse.Namespace):
         model=EVAL_MODEL,
         model_args=model_args,
         tasks=task_names,
-        num_fewshot=EVAL_FEWSHOT,
-        limit=EVAL_LIMIT,
-        batch_size=EVAL_BS,
+        #num_fewshot=fewshot,
+        #limit=EVAL_LIMIT,
+        #batch_size=EVAL_BS,
         evaluation_tracker=tracker,
-        log_samples=EVAL_LOG_SAMPLE,
-        gen_kwargs=gen_args,
+        #log_samples=EVAL_LOG_SAMPLE,
+        #gen_kwargs=gen_args,
     )
     duration = time.perf_counter() - start_time
     samples = results.pop("samples") if EVAL_LOG_SAMPLE else None
@@ -112,6 +115,20 @@ def main(args: argparse.Namespace):
     if args.check_logprobs:
         asyncio.run(check_logprobs(args.endpoint+"/completions", args.model))
     run_eval(args)
+
+
+"""
+    model_args = (
+        f"model={args.tokenizer},"
+        f"base_url={args.endpoint}/completions,"
+        f"num_concurrent=500,tokenized_requests=False")
+    results = lm_eval.simple_evaluate(
+        model="local-completions",
+        model_args=model_args,
+        tasks=f"{args.tasks}"
+    )
+"""
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
