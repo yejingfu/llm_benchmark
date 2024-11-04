@@ -34,7 +34,22 @@ function usage() {
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
     LOG INFO "  --test-strength The test strength level, can be: low, middle, high, default is high"
+    LOG INFO "  --setup Setup the testing envrionment, like install docker and git-lfs"
     exit
+}
+
+function setup() {
+    LOG INFO "Setup environment....."
+    LOG INFO "[Install docker]"
+    install_docker
+    LOG INFO "[Install git-lfs"]
+    if dpkg-query -W -f='${Status}' git-lfs 2>/dev/null | grep -q "install ok installed"; then
+        LOG INFO "git-lfs is installed"
+    else
+        LOG INFO "install git-lfs"
+        apt-get install -y git git-lfs
+    fi
+    LOG INFO "Setup DONE"
 }
 
 function download_model() {
@@ -114,6 +129,10 @@ function main() {
         shift
         BM_TEST_STRENGTH="$1"
         shift
+        ;;
+    --setup)
+        setup
+        exit
         ;;
     *)
         usage
