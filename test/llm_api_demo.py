@@ -30,6 +30,7 @@ class CompletionContext:
     index: int = field(default=0)
     # input
     model: str = field(default="")
+    input: str = field(default="")
     prompt: str = field(default="")
     prompt_len: int = field(default=0)
     max_tokens: int = field(default=10)
@@ -85,17 +86,17 @@ async def async_request_openai_completions(ctx: CompletionContext, url: str, api
     if ctx.ignore_eos is not None:
         payload["ignore_eos"] = ctx.ignore_eos
     chat = "/chat/completions" in url
-    if os.path.isfile(ctx.prompt):
-        print(f"Load prompt from {ctx.prompt}")
-        with open(ctx.prompt, "r") as f:
+    if os.path.isfile(ctx.input):
+        print(f"Load request from {ctx.input}")
+        with open(ctx.input, "r") as f:
             data = f.read()
-            if ctx.prompt.endswith(".json") or ctx.prompt.endswith(".jsonl"):
+            if ctx.input.endswith(".json") or ctx.input.endswith(".jsonl"):
                 data = json.loads(data)
                 if "prompt" in data or "messages" in data:
                     for k in data:
                         payload[k] = data[k]
                 else:
-                    raise ValueError(f"Invalid content in file {ctx.prompt}")
+                    raise ValueError(f"Invalid content in file {ctx.input}")
             else:
                 if chat:
                     payload["messages"] = []
@@ -105,9 +106,9 @@ async def async_request_openai_completions(ctx: CompletionContext, url: str, api
     else:
         if chat:
             payload["messages"] = []
-            payload["messages"].append({"role": "user", "content": args.prompt})
+            payload["messages"].append({"role": "user", "content": ctx.input})
         else:
-            payload["prompt"] = args.prompt
+            payload["prompt"] = ctx.input
 
     ## more parameters
     #payload["temperature"] = 0.2
@@ -259,7 +260,7 @@ def main(args):
 
     if "completions" in parsed_url.path:
         print("Call API: OpenAI completions")
-        ctx = CompletionContext(prompt = args.prompt, model=args.model_name, max_tokens=args.output_len, stream=args.stream, ignore_eos=args.ignore_eos,)
+        ctx = CompletionContext(input = args.input, model=args.model_name, max_tokens=args.output_len, stream=args.stream, ignore_eos=args.ignore_eos,)
         start_time = time.time()
         asyncio.run(async_request_openai_completions(ctx, args.url, args.api_key))
         duration = time.time() - start_time
@@ -271,9 +272,9 @@ def main(args):
             print(f"E2E Latency: {ctx.e2e_latency:0.3f}, TTFT: {ctx.ttft:0.3f}")
     elif "embeddings" in parsed_url.path:
         print("Call API: embeddings")
-        if args.prompt is None:
-            raise ValueError("Invalid prompt to call embeddings API")
-        result = asyncio.run(async_generate_embeddings(args.url, args.prompt, args.model_name, args.api_key))
+        if args.input is None:
+            raise ValueError("Invalid input to call embeddings API")
+        result = asyncio.run(async_generate_embeddings(args.url, args.input, args.model_name, args.api_key))
         print(f"Embeddings response: {result}")
     elif "models" in parsed_url.path:
         print(f"Model: {get_model(args.url)}")
@@ -289,7 +290,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Demonstration about llm openapi.")
     parser.add_argument("--url", type=str, help="The host URL of the llm openapi server.", default="http://localhost:8000/v1/completions")
     parser.add_argument("--api-key", type=str, help="The secret key to connect server.")
-    parser.add_argument("--prompt", type=str, help="The prompt for the completion.", default="The quick brown fox jumps over the lazy dog.")
+    parser.add_argument("--input", type=str, help="The prompt for the completion.", default="The quick brown fox jumps over the lazy dog.")
     parser.add_argument("--model-name", type=str, help="The model name for completions.")
     parser.add_argument("--output-len", type=int, help="The maximum length of the output.", default=1024)
     parser.add_argument("--stream", action="store_true", help="Whether to stream the output or not.")
