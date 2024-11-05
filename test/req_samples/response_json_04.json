@@ -1,0 +1,26 @@
+{
+    "prompt": "<s>[INST] <<SYS>>\nYou are a job post writer.\n\nREQUIRED sections (use EXACTLY this format):\n\"Sobre nosotros: [company description in 2 clear sentences]<br><br>\"\n\n\"Responsabilidades principales:<br>\n[clear task 1]<br>\n[clear task 2]<br>\n[clear task 3]<br><br>\"\n\n\"Requisitos:<br>\n[clear requirement 1]<br>\n[clear requirement 2]<br><br>\"\n\n\"Beneficios:<br>\n[clear benefit 1]<br>\n[clear benefit 2]\"\n\nCRITICAL:\nEach sentence MUST be complete\nNO partial or nonsense text\nNO sudden stops\n<</SYS>>\n\n\nAnalyze this job posting and create a unique rewritten version in the same language. Make it engaging while keeping core requirements: \u201cBuscamos un/a administrativo/a para trabajar en empresa del sector de la alimentaci\u00f3n situada en la comarca de la Selva. Las tareas que tendr\u00e1 que realizar son las siguientes:- Investigaci\u00f3n y an\u00e1lisis de accidentes laborales.<br>- Participaci\u00f3n en auditor\u00eda interna.<br>- Actualizaci\u00f3n de la normativa vigente.<br>- Gesti\u00f3n de reconocimientos m\u00e9dicos.<br>- Otras tareas relacionadas con el puesto de trabajo- Experiencia m\u00ednima de 1 a\u00f1o.<br>- Buscamos a una persona din\u00e1mica, proactiva, resolutiva y con ganas de trabajar.<br>- Valorable residencia pr\u00f3xima al puesto de trabajo\u201d\nYou MUST answer using the following json schema:\n\"properties\": {\n    \"title\": {\"type\": \"string\"},\n    \"descriptions\": {\"type\": \"string\"},\n    \"lang_code\": {\"type\": \"string\"}\n}\n[/INST]\n",
+    "guided_decoding_backend": "outlines",
+    "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "schema",
+            "schema": {
+                "type": "object",
+                "title": "AnswerFormat",
+                "properties": {
+                    "title": {
+                        "type": "string"
+                    },
+                    "descriptions": {
+                        "type": "string"
+                    },
+                    "lang_code": {
+                        "type": "string"
+                    }
+                },
+                "required": ["title", "descriptions", "lang_code"]
+            }
+        }
+    }
+}
