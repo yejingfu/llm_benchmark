@@ -14,6 +14,10 @@ from typing import AsyncGenerator, List, Optional, Tuple
 
 AIOHTTP_TIMEOUT = aiohttp.ClientTimeout(total=6 * 60 * 60)
 
+DEFAULT_SYSTEM_PROMPT = """\
+You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.\
+"""
+
 """
 Example of APIs:
     "version": "/version",
@@ -31,6 +35,7 @@ class CompletionContext:
     # input
     model: str = field(default="")
     input: str = field(default="")
+    add_sys_prompt: bool = field(default=False)
     prompt: str = field(default="")
     prompt_len: int = field(default=0)
     max_tokens: int = field(default=10)
@@ -94,21 +99,42 @@ async def async_request_openai_completions(ctx: CompletionContext, url: str, api
                 data = json.loads(data)
                 if "prompt" in data or "messages" in data:
                     for k in data:
-                        payload[k] = data[k]
+                        if k == "prompt" and ctx.add_sys_prompt:
+                            payload[k] = f'<s>[INST] <<SYS>>\n{DEFAULT_SYSTEM_PROMPT}\n<</SYS>>\n\n{data[k]} [/INST]'
+                        else:
+                            payload[k] = data[k]
+                    if "messages" in payload and ctx.add_sys_prompt:
+                        role_sys_found = False
+                        for element in payload["messages"]:
+                            if "role" in element and element["role"] == "system":
+                                role_sys_found = True
+                                break
+                        if not role_sys_found:
+                            payload["messages"].append({"role": "system", "content": DEFAULT_SYSTEM_PROMPT})
                 else:
                     raise ValueError(f"Invalid content in file {ctx.input}")
             else:
                 if chat:
                     payload["messages"] = []
+                    if ctx.add_sys_prompt:
+                        payload["messages"].append({"role": "system", "content": DEFAULT_SYSTEM_PROMPT})
                     payload["messages"].append({"role": "user", "content": data})
                 else:
-                    payload["prompt"] = data
+                    if ctx.add_sys_prompt:
+                        payload["prompt"] = f'<s>[INST] <<SYS>>\n{DEFAULT_SYSTEM_PROMPT}\n<</SYS>>\n\n{data} [/INST]'
+                    else:
+                        payload["prompt"] = data
     else:
         if chat:
             payload["messages"] = []
+            if ctx.add_sys_prompt:
+                payload["messages"].append({"role": "system", "content": DEFAULT_SYSTEM_PROMPT})
             payload["messages"].append({"role": "user", "content": ctx.input})
         else:
-            payload["prompt"] = ctx.input
+            if ctx.add_sys_prompt:
+                payload["prompt"] = f'<s>[INST] <<SYS>>\n{DEFAULT_SYSTEM_PROMPT}\n<</SYS>>\n\n{ctx.input} [/INST]'
+            else:
+                payload["prompt"] = ctx.input
 
     ## more parameters
     #payload["temperature"] = 0.2
@@ -260,7 +286,7 @@ def main(args):
 
     if "completions" in parsed_url.path:
         print("Call API: OpenAI completions")
-        ctx = CompletionContext(input = args.input, model=args.model_name, max_tokens=args.output_len, stream=args.stream, ignore_eos=args.ignore_eos,)
+        ctx = CompletionContext(input = args.input, add_sys_prompt = args.def_sys_prompt, model=args.model_name, max_tokens=args.output_len, stream=args.stream, ignore_eos=args.ignore_eos,)
         start_time = time.time()
         asyncio.run(async_request_openai_completions(ctx, args.url, args.api_key))
         duration = time.time() - start_time
@@ -295,6 +321,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-len", type=int, help="The maximum length of the output.", default=1024)
     parser.add_argument("--stream", action="store_true", help="Whether to stream the output or not.")
     parser.add_argument("--ignore-eos", action="store_true", help="Force to ouput the maximum length of the output, ignore eos when found.", default=None)
+    parser.add_argument("--def-sys-prompt", action="store_true", help="Add default system prompt as prefix of prompt")
 
     args = parser.parse_args()
     main(args)
