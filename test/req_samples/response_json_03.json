@@ -1,0 +1,21 @@
+{
+"prompt": "<s>[INST] <<SYS>>\nYou are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.\n<</SYS>>\n\nPlease give me information about Michael Jordan. You MUST answer using the following json schema: {\"properties\": {\"first_name\": {\"title\": \"First Name\", \"type\": \"string\"}, \"last_name\": {\"title\": \"Last Name\", \"type\": \"string\"}, \"year_of_birth\": {\"title\": \"Year Of Birth\", \"type\": \"integer\"}, \"num_seasons_in_nba\": {\"title\": \"Num Seasons In Nba\", \"type\": \"integer\"}}, \"required\": [\"first_name\", \"last_name\", \"year_of_birth\", \"num_seasons_in_nba\"], \"title\": \"AnswerFormat\", \"type\": \"object\"} [/INST]",
+"guided_decoding_backend": "outlines",
+"response_format": {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "schema",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "first_name": {"title": "First Name", "type": "string"},
+                "last_name": {"title": "Last Name", "type": "string"},
+                "year_of_birth": {"title": "Year Of Birth", "type": "integer"},
+                "num_seasons_in_nba": {"title": "Num Seasons In Nba", "type": "integer"}
+            },
+            "required": ["first_name", "last_name", "year_of_birth", "num_seasons_in_nba"],
+            "title": "AnswerFormat"
+        }
+    }
+}
+}
