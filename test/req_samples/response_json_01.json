@@ -1,16 +1,6 @@
 {
 "prompt": "what is 1+1? please respond with a JSON object, the format is {\"result\": 2}",
-"response_format": {
-"type": "json_schema",
-"json_schema": {
-    "name": "foo_test",
-    "schema": {
-        "type": "object",
-        "properties": {
-             "result": {"type": "integer"}
-         }
-     }
-}
-}
+"guided_json": {"type": "object"},
+"max_tokens": 512
 }
 
