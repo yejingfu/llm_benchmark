@@ -17,6 +17,7 @@ DEF_MARKERS = {
     "h100": ["^", "v", "<", ">"],
     "h2o": ["|", "_", "+"]
 }
+UPDATE_MODEL_NAME=True
 
 @dataclass
 class MetricsData:
@@ -73,11 +74,17 @@ def load_metrics_from_file(file_path: str) -> List[MetricsData]:
     print(f"Load metrics from {file_path}")
     if not os.path.isfile(file_path):
         raise RuntimeError(f"Invalid metrics file path: {file_path}")
-    name = os.path.basename(file_path)
-    pos1 = name.find("_gpu_")
-    pos2 = name.find("_", pos1+5)
+    file_name = os.path.basename(file_path)
+    pos1 = file_name.find("_gpu_")
+    pos2 = file_name.find("_", pos1+5)
     if pos1 >= 0 and pos2 > pos1:
-        name = name[pos1+5:pos2]
+        name = file_name[pos1+5:pos2]
+    model_name = None
+    pos1 = file_name.find("_model_")
+    if pos1 > 0:
+        pos2 = file_name.find("_", pos1+7)
+        if pos2 > pos1:
+            model_name = file_name[pos1+7:pos2]
     with open(file_path, "r") as f:
         line = f.readline()
         cur_metrics = None
@@ -93,7 +100,10 @@ def load_metrics_from_file(file_path: str) -> List[MetricsData]:
                 metrics.append(cur_metrics)
                 cur_metrics = None
             if line.startswith("model"):
-                cur_metrics.model = line.split(":")[1].strip()
+                if model_name is None:
+                    cur_metrics.model = line.split(":")[1].strip()
+                else:
+                    cur_metrics.model = model_name
             elif line.startswith("sequence-length"):
                 line = line.split(":")[1].strip()
                 lens = line.split(",")
@@ -216,15 +226,21 @@ def main(args: argparse.Namespace):
                 mmm[percentile_labels[i]]["tps"] = m.tps[i]
                 mmm[percentile_labels[i]]["throughput"] = m.throughput[0]
     #print(f"{results}")
-    show_percentile = ["p90", "p99"]
+    show_percentile = ["avg", "p50", "p90", "p99"]
+    output = ""
     for k in results:
         m = results[k]
-        print(f"\n[{k}]")
+        output += f"\n[Best Throughput]: {k}\n"
+        num, gpu, price = MetricsData.get_gpu_info(k)
         for kk in m:
-            print(f"{kk}") ## (input_len,output_len)
+            output += f"{kk}\n"
             for p in show_percentile:
                 mm = m[kk][p]
-                print(f"\t[{p}] ttft: {mm['ttft']}, bs: {mm['bs']}, tps: {mm['tps']}, throughput: {int(mm['throughput'])}")
+                output += f"\t[{p}] ttft: {mm['ttft']}, bs: {mm['bs']}, tps: {mm['tps']}, throughput: {int(mm['throughput'])}, $/MTokens: {(price * 1e6 / 3600 / mm['throughput']):.3f}\n"
+    print(output)
+    if args.output:
+        with open(args.output, "a") as f:
+            f.write(output)
     if args.plot != "none":
         if args.plot in DEF_PLOT_PERCENT:
             print(f"Plot the best of {args.plot}")
@@ -270,7 +286,6 @@ def main(args: argparse.Namespace):
                     for e in m[label]:
                         print(f"      bs:{e['bs']}, dollar_per_mt:{e['dollar_per_mt']}, max_tps:{e['max_tps']}")
             plot_price_tps_detail(len_to_info)
-                
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -279,6 +294,7 @@ if __name__ == "__main__":
     parser.add_argument("--log-files", type=str, help="The log files, seperated by comma")
     parser.add_argument("--max-ttft", type=float, default=2, help="The maximum ttft, the found throughput should has less ttft than it. Default is 2")
     parser.add_argument("--plot", type=str, default="none", help=f"Draw the graph of specific percentile, can be {DEF_PLOT_PERCENT}, default is none")
+    parser.add_argument("--output", type=str, help=f"Save the result to output file with append mode")
     args = parser.parse_args()
     main(args)
 

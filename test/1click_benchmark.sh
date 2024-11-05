@@ -5,9 +5,9 @@ source $CUR_DIR/util.sh
 
 declare -A DEF_MODEL_HF_NAMES
 DEF_MODEL_HF_NAMES["l31-8b"]="yejingfu/Meta-Llama-3.1-8B-Instruct"
-DEF_MODEL_HF_NAMES["l31-8b-fp8"]="yejingfu/NousResearch-Meta-Llama-3.1-8B-Instruct-FP8"
+DEF_MODEL_HF_NAMES["l31-8b-fp8"]="yejingfu/nmagic-Meta-Llama-3.1-8B-Instruct-FP8"
 DEF_MODEL_HF_NAMES["l31-70b"]="yejingfu/Meta-Llama-3.1-70B-Instruct"
-DEF_MODEL_HF_NAMES["l31-70b-fp8"]="yejingfu/Meta-Llama-3.1-70B-Instruct-FP8"
+DEF_MODEL_HF_NAMES["l31-70b-fp8"]="yejingfu/nmagic-Meta-Llama-3.1-70B-Instruct-FP8"
 DEF_GPU_TYPES=("4090" "h100" "h20" "h800" "a100" "a800")
 DEF_TOKENIZER_HF_NAME="yejingfu/Meta-Llama-3.1-8B-Instruct"
 DEF_DS_NAME="ShareGPT_V3_unfiltered_cleaned_split.json"
@@ -198,6 +198,8 @@ function main() {
     fi
     LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
     $CUR_DIR/launch_benchmark.sh $server_args $client_args
+    $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+    LOG INFO "[DONE]"
 }
 
 main "$@"
