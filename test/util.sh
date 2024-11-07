@@ -120,3 +120,13 @@ contains_value() {
     return 1
 }
 
+split_string() {
+    local str="$1"
+    local sep="$2"
+    if [[ x"$sep" = x"" ]]; then
+        sep=","
+    fi
+    IFS=',' read -ra arr <<< "$str"
+    echo "${arr[@]}"
+}
+

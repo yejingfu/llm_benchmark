@@ -15,9 +15,9 @@ DEF_DS_HF_PATH="datasets/yejingfu/ShareGPT_V3/resolve/main/ShareGPT_V3_unfiltere
 
 BM_DOCKER_IMAGE="image.paigpu.com/library/ppinfer_vllm:0.6.2.2"
 BM_GPU_TYPE=
-BM_GPU_IDS=
-BM_MODEL_NAME=
-BM_MODEL_DIR=
+BM_GPU_IDS="0,1,2,3,4,5,6,7"
+BM_MODELS=
+BM_TPS=
 BM_TOKENIZER_DIR=
 BM_TEST_STRENGTH="high"
 
@@ -28,9 +28,9 @@ fi
 function usage() {
     LOG INFO "$PRG_NAME [options]"
     LOG INFO "  --gpu-type The type of GPU, can be ${DEF_GPU_TYPES[@]}"
-    LOG INFO "  --gpu-ids The list of GPU IDs, sperated by comma, e.g. 0,1,2,3"
-    LOG INFO "  --model-name The model short name, can be ${!DEF_MODEL_HF_NAMES[@]}"
-    LOG INFO "  --model-dir (optional) The model folder path, if not set, download from huggingface"
+    LOG INFO "  --gpu-ids The list of GPU IDs, sperated by comma, default is 0,1,2,3,4,5,6,7"
+    LOG INFO "  --models Can be model short name within ${!DEF_MODEL_HF_NAMES[@]}, or huggingface model name, or local model absolute path. If many, separated by comma"
+    LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
     LOG INFO "  --test-strength The test strength level, can be: low, middle, high, default is high"
@@ -77,16 +77,138 @@ function download_model() {
     LOG INFO "Completed HF model downloading"
 }
 
-function get_hf_model_name() {
-    local short_name=$1
-    local ret="null"
-    for key in "${!DEF_MODEL_HF_NAMES[@]}"; do
-        if [[ $short_name == $key ]]; then
-            ret=${DEF_MODEL_HF_NAMES[$key]}
-            break
-        fi
-    done
+function guess_served_name() {
+    local name=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+    local ret=$name
+    local sufix=""
+    if [[ "$name" == *8b* ]]; then
+        sufix="8b"
+    elif [[ "$name" == *70b* ]]; then
+        sufix="70b"
+    elif [[ "$name" == *12b* ]]; then
+        sufix="12b"
+    elif [[ "$name" == *1b* ]]; then
+        sufix="1b"
+    fi
+    if [[ "$name" == *fp8* ]]; then
+        sufix="$sufix-fp8"
+    elif [[ "$name" == *awq ]]; then
+        sufix="$sufix-int4"
+    fi
+    if [[ "$name" == *llama-3.1* ]]; then
+        ret="llama31-$sufix"
+    elif [[ "$name" == *llama-3* ]]; then
+        ret="llama3-$sufix"
+    elif [[ "$name" == *llama* ]]; then
+        ret="llama-$sufix"
+    else
+        ret="unknown-$sufix"
+    fi
     echo $ret
+}
+
+function run_benchmark() {
+    local model_name="$1"
+    local served_name=$model_name
+    local model_dir=$model_name
+    local tp="$2"
+    echo ""
+    LOG INFO "====== Run benchmark for model: $model_name, with tp: $tp ======"
+
+    if [[ "$model_name" == /* ]]; then
+        if [[ ! -d "$model_name" ]] || [[ ! -f "$model_name/config.json" ]] ; then
+            LOG ERR "The the model does not exist on local disk: $model_name"
+        fi
+        served_name=$(guess_served_name $(basename "$model_name"))
+        LOG INFO "Load model from local disk, served name: $served_name"
+    else
+        if contains_value "$model_name" "${!DEF_MODEL_HF_NAMES[@]}"; then
+            for key in "${!DEF_MODEL_HF_NAMES[@]}"; do
+                if [[ $model_name == $key ]]; then
+                    model_name=${DEF_MODEL_HF_NAMES[$key]}
+                    served_name=$key
+                    break
+                fi
+            done
+        else
+            served_name=$(guess_served_name $(basename "$model_name"))
+        fi
+        model_dir=$CUR_DIR/$served_name
+        LOG INFO "Downloading model from huggingface: $model_name and save to $model_dir, and set served_name as $served_name"
+        if [[ ! -d "$model_dir" ]] || [ ! -f "$model_dir/config.json" ]; then
+            download_model $model_name $model_dir
+        else
+            LOG INFO "Use model from local disk: $model_dir"
+        fi
+    fi
+    num_gpus=$(count_numbers $BM_GPU_IDS)
+    local log_file_path="out/_gpu_${num_gpus}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
+    local port=$((18000+RANDOM%100))
+    server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
+    client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
+    if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
+        client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
+    elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
+        client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
+    else
+        client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+    fi
+    LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
+    $CUR_DIR/launch_benchmark.sh $server_args $client_args
+    $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+}
+
+function run() {
+    LOG INFO "BM_GPU_TYPE: $BM_GPU_TYPE, BM_GPU_IDS: $BM_GPU_IDS, BM_MODEL_NAME: $BM_MODEL_NAME, BM_DOCKER_IMAGE: $BM_DOCKER_IMAGE, BM_MODEL_DIR: $BM_MODEL_DIR"
+    if [ x"$BM_GPU_TYPE" = x"" ];then
+        LOG ERR "Empty gpu type, please set by --gpu-type"
+    fi
+    if ! contains_value "$BM_GPU_TYPE" "${DEF_GPU_TYPES[@]}"; then
+        LOG ERR "Invalid GPU type $BM_GPU_TYPE, should set by --gpu-type and its value shoud be in ${DEF_GPU_TYPES[@]}"
+    fi
+    if [ x"$BM_MODELS" = x"" ]; then
+        LOG ERR "Empty models, please set by --models"
+    fi
+    if [ x"$BM_TPS" = x"" ]; then
+        LOG ERR "The tensor parallel is empty, please set by --tp"
+    fi
+    local model_names=($(split_string $BM_MODELS))
+    local tps=($(split_string $BM_TPS))
+    local num_models=${#model_names[@]}
+    local num_tps=${#tps[@]}
+    local num=$((num_models-num_tps))
+    if [ $num -gt 0 ] && [ $num_tps -eq 1 ]; then
+        for i in $(seq 1 $num); do
+            tps+=(${tps[0]})
+        done
+    fi
+    num_tps=${#tps[@]}
+    if [[ $num_tps -ne $num_models ]]; then
+        LOG ERR "The num of models and tps are mismatched"
+    fi
+
+    if [[ x"$BM_TOKENIZER_DIR" = x"" ]];then
+        BM_TOKENIZER_DIR=$CUR_DIR/tokenizer
+        LOG INFO "Set tokenizer to $BM_TOKENIZER_DIR"
+    fi
+    if [[ -f "$BM_TOKENIZER_DIR/config.json" ]]; then
+        LOG INFO "Use the existing tokenizer $BM_TOKENIZER_DIR"
+    else
+        LOG INFO "Downloading default tokenizer from huggingface: $DEF_TOKENIZER_HF_NAME and save to $BM_TOKENIZER_DIR"
+        download_model $DEF_TOKENIZER_HF_NAME $BM_TOKENIZER_DIR
+    fi
+    if [[ ! -f "$CUR_DIR/$DEF_DS_NAME" ]]; then
+        LOG INFO "Downloading dataset from: $HF_ENDPOINT/$DEF_DS_HF_PATH"
+        wget $HF_ENDPOINT/$DEF_DS_HF_PATH
+    fi
+    if [[ ! -d out ]]; then
+        mkdir out
+    fi
+    for i in $(seq 0 $((num_models - 1)));do
+        run_benchmark "${model_names[$i]}" ${tps[$i]}
+    done
+    echo ""
+    LOG INFO "[DONE]"
 }
 
 function main() {
@@ -105,14 +227,14 @@ function main() {
         BM_GPU_IDS="$1"
         shift
         ;;
-    --model-name)
+    --models)
         shift
-        BM_MODEL_NAME="$1"
+        BM_MODELS="$1"
         shift
         ;;
-    --model-dir)
+    --tps)
         shift
-        BM_MODEL_DIR="$1"
+        BM_TPS="$1"
         shift
         ;;
     --tokenizer-dir)
@@ -139,67 +261,7 @@ function main() {
         break
     esac
     done
-    LOG INFO "BM_GPU_TYPE: $BM_GPU_TYPE, BM_GPU_IDS: $BM_GPU_IDS, BM_MODEL_NAME: $BM_MODEL_NAME, BM_DOCKER_IMAGE: $BM_DOCKER_IMAGE, BM_MODEL_DIR: $BM_MODEL_DIR"
-    if [ x"$BM_GPU_TYPE" = x"" ];then
-        LOG ERR "Empty gpu type, please set by --gpu-type"
-    fi
-    if ! contains_value "$BM_GPU_TYPE" "${DEF_GPU_TYPES[@]}"; then
-        LOG ERR "Invalid GPU type $BM_GPU_TYPE, should set by --gpu-type and its value shoud be in ${DEF_GPU_TYPES[@]}"
-    fi
-    if [ x"$BM_MODEL_NAME" = x"" ]; then
-        LOG ERR "Empty model name, please set by --model-name"
-    fi
-    if ! contains_value "$BM_MODEL_NAME" "${!DEF_MODEL_HF_NAMES[@]}"; then
-        LOG ERR "Invalid model name $BM_MODEL_NAME, should set by --model-name and its value shoud be in ${!DEF_MODEL_HF_NAMES[@]}"
-    fi
-    if [ x"$BM_GPU_IDS" = x"" ]; then
-        LOG ERR "Empty gpu ids, please set by --gpu-ids"
-    fi
-    if [ x"$BM_MODEL_DIR" = x"" ]; then
-        BM_MODEL_DIR="$CUR_DIR/$BM_MODEL_NAME"
-        LOG INFO "Set model dir path to $BM_MODEL_DIR"
-    fi
-    if [[ -f "$BM_MODEL_DIR/config.json" ]]; then
-        LOG INFO "Use the existing model folder $BM_MODEL_DIR"
-    else
-        local hf_model_name=$(get_hf_model_name $BM_MODEL_NAME)
-        if [[ x"$hf_model_name" = x"null" ]]; then
-            LOG ERR "Invalid model name, the --model-name should be in ${!DEF_MODEL_HF_NAMES[@]}"
-        fi
-        download_model $hf_model_name $BM_MODEL_DIR
-    fi
-    if [[ x"$BM_TOKENIZER_DIR" = x"" ]];then
-        BM_TOKENIZER_DIR=$CUR_DIR/tokenizer
-        LOG INFO "Set tokenizer to $BM_TOKENIZER_DIR"
-    fi
-    if [[ -f "$BM_TOKENIZER_DIR/config.json" ]]; then
-        LOG INFO "Use the existing tokenizer $BM_TOKENIZER_DIR"
-    else
-        download_model $DEF_TOKENIZER_HF_NAME $BM_TOKENIZER_DIR
-    fi
-    if [[ ! -f "$CUR_DIR/$DEF_DS_NAME" ]]; then
-        LOG INFO "Downloading dataset from: $HF_ENDPOINT/$DEF_DS_HF_PATH"
-        wget $HF_ENDPOINT/$DEF_DS_HF_PATH
-    fi
-    if [[ ! -d out ]]; then
-        mkdir out
-    fi
-    num_gpus=$(count_numbers $BM_GPU_IDS)
-    local log_file_path="out/_gpu_${num_gpus}x${BM_GPU_TYPE}_model_${BM_MODEL_NAME}_$RANDOM.txt"
-    local port=$((18000+RANDOM%100))
-    server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $BM_MODEL_NAME --model-dir $BM_MODEL_DIR --gpu-ids $BM_GPU_IDS --listen-port $port"
-    client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
-    if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
-        client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
-    elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
-        client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
-    else
-        client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
-    fi
-    LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
-    $CUR_DIR/launch_benchmark.sh $server_args $client_args
-    $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
-    LOG INFO "[DONE]"
+    run
 }
 
 main "$@"

@@ -9,6 +9,7 @@ BM_MODEL_DIR=
 BM_HF_MODEL=
 BM_SERVED_NAME=
 BM_GPU_IDS="0"
+BM_TP=1
 BM_LISTEN_PORT="18011"
 BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --max-model-len 32768 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
 
@@ -39,6 +40,7 @@ function usage() {
     LOG INFO "  --model-hf-name (optional) The huggingface model name, download from it if the local --model-dir does not exist"
     LOG INFO "  --model-served-name (optional) The served model name, which client can query"
     LOG INFO "  --gpu-ids (optional) The list of GPU IDs used to serve LLM, default is 0"
+    LOG INFO "  --tp (optional) The tensor parallel setting, default is 1"
     LOG INFO "  --listen-port (optional) The http listening port, default is $BM_LISTEN_PORT"
     LOG INFO "  --extra-server-args (optional) The extra server argument, default is: $BM_DEF_SERVER_EXTA_ARGS"
     LOG INFO " client side:"
@@ -96,7 +98,7 @@ function run() {
         num_gpus=$(count_numbers $BM_GPU_IDS)
         docker_name="benchmark_$RANDOM"
         docker_args="-d --gpus all --privileged --ipc=host --net=host -v $BM_MODEL_DIR:/this_model -e CUDA_VISIBLE_DEVICES=$BM_GPU_IDS"
-        server_args="--tensor-parallel-size $num_gpus --model /this_model"
+        server_args="--tensor-parallel-size $BM_TP --model /this_model"
         if [ x"$BM_SERVED_NAME" != x"" ]; then
             server_args="$server_args --served-model-name $BM_SERVED_NAME"
         fi
@@ -284,6 +286,11 @@ function main() {
     --gpu-ids)
         shift
         BM_GPU_IDS="$1"
+        shift
+        ;;
+    --tp)
+        shift
+        BM_TP=$1
         shift
         ;;
     --listen-port)
