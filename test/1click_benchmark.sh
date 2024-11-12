@@ -8,7 +8,7 @@ DEF_MODEL_HF_NAMES["l31-8b"]="yejingfu/Meta-Llama-3.1-8B-Instruct"
 DEF_MODEL_HF_NAMES["l31-8b-fp8"]="yejingfu/nmagic-Meta-Llama-3.1-8B-Instruct-FP8"
 DEF_MODEL_HF_NAMES["l31-70b"]="yejingfu/Meta-Llama-3.1-70B-Instruct"
 DEF_MODEL_HF_NAMES["l31-70b-fp8"]="yejingfu/nmagic-Meta-Llama-3.1-70B-Instruct-FP8"
-DEF_GPU_TYPES=("4090" "h100" "h20" "h800" "a100" "a800")
+DEF_GPU_TYPES=("4090" "h100" "h20" "h800" "a100" "a800" "l20" "l40s" "a6000")
 DEF_TOKENIZER_HF_NAME="yejingfu/Meta-Llama-3.1-8B-Instruct"
 DEF_DS_NAME="ShareGPT_V3_unfiltered_cleaned_split.json"
 DEF_DS_HF_PATH="datasets/yejingfu/ShareGPT_V3/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
@@ -49,6 +49,7 @@ function setup() {
         LOG INFO "install git-lfs"
         apt-get install -y git git-lfs
     fi
+    pip install aiohttp numpy loguru tqdm transformers
     LOG INFO "Setup DONE"
 }
 
@@ -253,8 +254,8 @@ function main() {
         shift
         ;;
     --setup)
+        shift
         setup
-        exit
         ;;
     *)
         usage
