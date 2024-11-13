@@ -49,7 +49,7 @@ function setup() {
         LOG INFO "install git-lfs"
         apt-get install -y git git-lfs
     fi
-    pip install aiohttp numpy loguru tqdm transformers
+    pip install aiohttp numpy loguru tqdm transformers matplotlib
     LOG INFO "Setup DONE"
 }
 
