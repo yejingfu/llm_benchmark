@@ -1,6 +1,12 @@
 {
 "prompt": "what is 1+1? please respond with a JSON object, the format is {\"result\": 2}",
-"guided_json": {"type": "object"},
+"guided_json": {
+    "type": "object",
+    "properties": {
+        "result": {"title": "result", "type": "integer"}
+    },
+    "required": ["result"]
+},
 "max_tokens": 512
 }
 
