@@ -142,8 +142,7 @@ function run_benchmark() {
             LOG INFO "Use model from local disk: $model_dir"
         fi
     fi
-    num_gpus=$(count_numbers $BM_GPU_IDS)
-    local log_file_path="out/_gpu_${num_gpus}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
+    local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
     local port=$((18000+RANDOM%100))
     server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
     client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
@@ -156,7 +155,7 @@ function run_benchmark() {
     fi
     LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
     $CUR_DIR/launch_benchmark.sh $server_args $client_args
-    $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+    python $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
 }
 
 function run() {
