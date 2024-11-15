@@ -30,7 +30,10 @@ class MetricsData:
     extra_bs: Optional[List[int]] = field(default_factory=list)
 
     def get_plot_label(self):
-        return self.model + "@" + self.name
+        if "llama" in self.model:
+            return self.model.replace("llama", "l") + "@" + self.name
+        else:
+            return self.model + "@" + self.name
 
 def load_metrics_from_file(file_path: str, update_model_name: bool): # -> Tuple(List[MetricsData], List[MetricsData]):
     metrics=[]
@@ -134,6 +137,35 @@ def load_metrics_from_file(file_path: str, update_model_name: bool): # -> Tuple(
             line = f.readline()
     return (metrics, best_metrics)
 
+def filter_metrics(metrics, filters: str):
+    parts = filters.split(",")
+    if "fp8" not in parts and "bf16" not in parts:
+        check_fp8 = True
+        check_bf16 = True
+    else:
+        check_fp8 = "fp8"in parts
+        check_bf16 = "bf16" in parts
+        if check_fp8:
+            parts.remove("fp8")
+        if check_bf16:
+            parts.remove("bf16")
+    result = []
+    for m in metrics:
+        if not (check_fp8 and check_bf16):
+            if check_fp8 and "fp8" not in m.model:
+                continue
+            elif check_bf16 and "fp8" in m.model:
+                continue
+        keep = False
+        for part in parts:
+            part = "h2o" if part == "h20" else part
+            keep = keep or part in m.name
+            if keep:
+                break
+        if keep:
+            result.append(m)
+    return result
+
 def find_metrics(metrics, input_len, bs):
     for m in metrics:
         if bs is None:
@@ -209,10 +241,34 @@ def plot_with_best(best_metrics_base, best_metrics_targets, args):
             plt_data[-1]["ann"].append(f"{plt_data[-1]['y'][-1]:.2f}({mt.extra_bs[3]}/{mb.extra_bs[3]})")
     print(f"plting data: {plt_data}")
     for data in plt_data:
-        plt.plot(data["x"], data["y"], label=data["label"])
+        ls = "solid"
+        ms = "o"
+        if "h100" in data["label"]:
+            ls = "dashed"
+            ms = "s"
+        elif "h2o" in data["label"]:
+            ls = "dashdot"
+            ms = "v"
+        elif "a100" in data["label"]:
+            ls = "dotted"
+            ms = "^"
+        elif "a800" in data["label"]:
+            ls = "-."
+            ms = "d"
+        elif "l20" in data["label"]:
+            ls = "--"
+            ms = "x"
+        elif "l40" in data["label"]:
+            ls = "-"
+            ms = "*"
+        elif "a6000" in data["label"]:
+            ls = ":"
+            ms = "."
+        plt.plot(data["x"], data["y"], linestyle=ls, marker=ms, label=data["label"])
         if args.plot_ann:
             for i, y in enumerate(data["y"]):
                 plt.annotate(data["ann"][i], xy=(data["x"][i], data["y"][i]), xytext=(data["x"][i], data["y"][i]))
+            #plt.annotate(data["label"], xy=(data["x"][-1], data["y"][-1]), xytext=(data["x"][-1], data["y"][-1]))
     plt.title(f"Speedup vs: {best_metrics_base[0].get_plot_label()}")
     plt.xlabel("Context length")
     plt.ylabel("Speedup")
@@ -235,8 +291,13 @@ def main(args: argparse.Namespace):
     best_metrics_targets = []
     for t in targets:
         (m1, m2) = load_metrics_from_file(t, True)
-        metrics_targets.append(m1)
-        best_metrics_targets.append(m2)
+        if args.plot_filter:
+            m1 = filter_metrics(m1, args.plot_filter)
+            m2 = filter_metrics(m2, args.plot_filter)
+        if len(m1) > 0:
+            metrics_targets.append(m1)
+        if len(m2) > 0:
+            best_metrics_targets.append(m2)
     print(f"baseline: {metrics_base[0].get_plot_label()}")    
     if "best" in args.plot_bs:
         plot_with_best(best_metrics_base, best_metrics_targets, args)
@@ -252,6 +313,7 @@ if __name__ == "__main__":
     parser.add_argument("--plot-bs", type=str, default="all", help=f"Which batch size to show, can be {DEF_PLOT_BS}, default is all")
     parser.add_argument("--plot-length", type=str, default="all", help="The context lengths, can be {DEF_PLOT_LENGTH}, default is all")
     parser.add_argument("--plot-ann", action="store_true", help="If set, plot the value for each point")
+    parser.add_argument("--plot-filter", type=str, help="If set, Filter out the specific metrics, it can be model type(fp8,bf16) or GPU type(4090,a100,h100,h20,...)")
     parser.add_argument("--output", type=str, help="If set, save the graph into the output file")
     args = parser.parse_args()
     main(args)
