@@ -8,10 +8,11 @@ BM_IMAGE="image.paigpu.com/library/ppinfer_vllm:0.6.2.2"
 BM_MODEL_DIR=
 BM_HF_MODEL=
 BM_SERVED_NAME=
-BM_GPU_IDS="0"
+BM_GPU_IDS="0,1,2,3,4,5,6,7"
 BM_TP=1
+BM_MAX_CTX_LEN="32768"
 BM_LISTEN_PORT="18011"
-BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --max-model-len 32768 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
+BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
 
 if [[ x"$HF_ENDPOINT" = x"" ]]; then
     HF_ENDPOINT="https://huggingface.co"
@@ -39,8 +40,9 @@ function usage() {
     LOG INFO "  --model-dir (optional) The path to model folder, loaded by server. If not set, do NOT run server"
     LOG INFO "  --model-hf-name (optional) The huggingface model name, download from it if the local --model-dir does not exist"
     LOG INFO "  --model-served-name (optional) The served model name, which client can query"
-    LOG INFO "  --gpu-ids (optional) The list of GPU IDs used to serve LLM, default is 0"
-    LOG INFO "  --tp (optional) The tensor parallel setting, default is 1"
+    LOG INFO "  --gpu-ids (optional) The list of GPU IDs used to serve LLM, default is $BM_GPU_IDS"
+    LOG INFO "  --tp (optional) The tensor parallel setting, default is $BM_TP"
+    LOG INFO "  --max-ctx-len (optional) The max length of context, default is $BM_MAX_CTX_LEN"
     LOG INFO "  --listen-port (optional) The http listening port, default is $BM_LISTEN_PORT"
     LOG INFO "  --extra-server-args (optional) The extra server argument, default is: $BM_DEF_SERVER_EXTA_ARGS"
     LOG INFO " client side:"
@@ -102,7 +104,7 @@ function run() {
         if [ x"$BM_SERVED_NAME" != x"" ]; then
             server_args="$server_args --served-model-name $BM_SERVED_NAME"
         fi
-        server_args="$server_args --port $BM_LISTEN_PORT $BM_DEF_SERVER_EXTA_ARGS"
+        server_args="$server_args --port $BM_LISTEN_PORT $BM_DEF_SERVER_EXTA_ARGS --max-model-len $BM_MAX_CTX_LEN"
         LOG INFO "docker run $docker_args --name $docker_name $BM_IMAGE $server_args"
         docker run $docker_args --name $docker_name $BM_IMAGE $server_args
         try=0
@@ -301,6 +303,11 @@ function main() {
     --extra-server-args)
         shift
         BM_DEF_SERVER_EXTA_ARGS="$1"
+        shift
+        ;;
+    --max-ctx-len)
+        shift
+        BM_MAX_CTX_LEN="$1"
         shift
         ;;
     *)

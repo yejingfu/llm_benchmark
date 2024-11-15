@@ -33,7 +33,7 @@ function usage() {
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
-    LOG INFO "  --test-strength The test strength level, can be: low, middle, high, default is high"
+    LOG INFO "  --test-strength The test strength level, can be: low, middle, high, very-high, default is high"
     LOG INFO "  --setup Setup the testing envrionment, like install docker and git-lfs"
     exit
 }
@@ -145,11 +145,16 @@ function run_benchmark() {
     local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
     local port=$((18000+RANDOM%100))
     server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
+    if [[ "$served_name" == *llama3-* ]]; then
+        server_args="$server_args --max-ctx-len 8192"
+    fi
     client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
     if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
         client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
     elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
         client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
+    elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
+        client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
     else
         client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
     fi
