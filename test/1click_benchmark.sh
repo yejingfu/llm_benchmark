@@ -20,6 +20,8 @@ BM_MODELS=
 BM_TPS=
 BM_TOKENIZER_DIR=
 BM_TEST_STRENGTH="high"
+BM_SERVER_ONLY=
+BM_CLIENT_ONLY=
 
 if [[ x"$HF_ENDPOINT" = x"" ]];then
     HF_ENDPOINT="https://huggingface.co"
@@ -35,6 +37,8 @@ function usage() {
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
     LOG INFO "  --test-strength The test strength level, can be: low, middle, high, very-high, default is high"
     LOG INFO "  --setup Setup the testing envrionment, like install docker and git-lfs"
+    LOG INFO "  --server-only Run vLLM engine directly"
+    LOG INFO "  --client-only Run the client only, input server endpoint to connect"
     exit
 }
 
@@ -142,25 +146,49 @@ function run_benchmark() {
             LOG INFO "Use model from local disk: $model_dir"
         fi
     fi
-    local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
-    local port=$((18000+RANDOM%100))
-    server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
-    if [[ "$served_name" == *llama3-* ]]; then
-        server_args="$server_args --max-ctx-len 8192"
-    fi
-    client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
-    if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
-        client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
-    elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
-        client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
-    elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
-        client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+    if [[ x"$BM_SERVER_ONLY" != x"" ]]; then
+        if ! python3 -c "import vllm" &> /dev/null; then
+            LOG INFO "Install vllm v0.6.3.post1"
+            pip install vllm==0.6.3.post1
+            #pip install https://github.com/vllm-project/vllm/releases/download/v0.6.4.post1/vllm-0.6.4.post1+cu118-cp38-abi3-manylinux1_x86_64.whl
+        fi
+        local port=$((18000+RANDOM%100))
+        local server_args="--model $model_dir --tensor-parallel-size $tp --port $port --served-model-name $served_name"
+        if [[ "$served_name" == *llama3-* ]]; then
+            server_args="$server_args --max-model-len 8192"
+        else
+            server_args="$server_args --max-model-len 31768"
+        fi
+        server_args="$server_args --swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
+        LOG INFO "[RUN] python3 -m vllm.entrypoints.openai.api_server $server_args"
+        python3 -m vllm.entrypoints.openai.api_server $server_args
+    elif [[ x"$BM_CLIENT_ONLY" != x"" ]]; then
+        local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
+        local client_args="--endpoint $BM_CLIENT_ONLY --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
+        LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $client_args"
+        $CUR_DIR/launch_benchmark.sh $client_args
+        python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
     else
-        client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+        local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
+        local port=$((18000+RANDOM%100))
+        local server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
+        if [[ "$served_name" == *llama3-* ]]; then
+            server_args="$server_args --max-ctx-len 8192"
+        fi
+        local client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
+        if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
+            client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
+        elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
+            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
+        elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
+            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+        else
+            client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+        fi
+        LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
+        $CUR_DIR/launch_benchmark.sh $server_args $client_args
+        python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
     fi
-    LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
-    $CUR_DIR/launch_benchmark.sh $server_args $client_args
-    python $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
 }
 
 function run() {
@@ -260,6 +288,15 @@ function main() {
     --setup)
         shift
         setup
+        ;;
+    --server-only)
+        shift
+        BM_SERVER_ONLY="yes"
+        ;;
+    --client-only)
+        shift
+        BM_CLIENT_ONLY="$1"
+        shift
         ;;
     *)
         usage

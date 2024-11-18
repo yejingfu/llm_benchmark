@@ -172,9 +172,9 @@ function run() {
             else
                 args2="$args2 --num-requests $BM_NUM_REQUESTS"
             fi
-            echo "==== [Run]: python $CUR_DIR/benchmark_client.py $args2"
+            echo "==== [Run]: python3 $CUR_DIR/benchmark_client.py $args2"
             echo ""
-            python $CUR_DIR/benchmark_client.py $args2
+            python3 $CUR_DIR/benchmark_client.py $args2
         done
     done
 
