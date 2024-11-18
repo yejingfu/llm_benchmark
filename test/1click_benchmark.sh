@@ -165,6 +165,15 @@ function run_benchmark() {
     elif [[ x"$BM_CLIENT_ONLY" != x"" ]]; then
         local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
         local client_args="--endpoint $BM_CLIENT_ONLY --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
+        if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
+            client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
+        elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
+            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
+        elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
+            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+        else
+            client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+        fi
         LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $client_args"
         $CUR_DIR/launch_benchmark.sh $client_args
         python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
