@@ -35,7 +35,7 @@ class MetricsData:
         else:
             return self.model + "@" + self.name
 
-def load_metrics_from_file(file_path: str, update_model_name: bool): # -> Tuple(List[MetricsData], List[MetricsData]):
+def load_metrics_from_file(file_path: str, update_model_name: bool) -> Tuple[List[MetricsData], List[MetricsData]]:
     metrics=[]
     best_metrics = []
     print(f"Load metrics from {file_path}")
@@ -176,6 +176,32 @@ def find_metrics(metrics, input_len, bs):
                 return m
     return None
 
+def get_plot_style_from_label(label:str) -> Tuple[str, str]:
+    ls = "solid"
+    ms = "o"
+    if "h100" in label:
+        ls = "dashed"
+        ms = "s"
+    elif "h2o" in label:
+        ls = "dashdot"
+        ms = "v"
+    elif "a100" in label:
+        ls = "dotted"
+        ms = "^"
+    elif "a800" in label:
+        ls = "-."
+        ms = "d"
+    elif "l20" in label:
+        ls = "--"
+        ms = "x"
+    elif "l40" in label:
+        ls = "-"
+        ms = "*"
+    elif "a6000" in label:
+        ls = ":"
+        ms = "."
+    return ls, ms
+
 def plot_with_bs(metrics_base, metrics_targets, args):
     plt_bs = args.plot_bs.split(",")
     if "all" in plt_bs:
@@ -188,6 +214,7 @@ def plot_with_bs(metrics_base, metrics_targets, args):
         print(f"target[{i}]: {metrics_targets[i][0].get_plot_label()}")
 
     plt_data = []
+    xticks = []
     for i in range(len(metrics_targets)):
         m_target = metrics_targets[i]
         for length in plt_length:
@@ -195,6 +222,7 @@ def plot_with_bs(metrics_base, metrics_targets, args):
             plt_data.append({"label": m_target[0].get_plot_label()+f"#{length}", "x": [], "y": []})
             for bs in plt_bs:
                 bs = int(bs)
+                xticks.append(bs)
                 m_b = find_metrics(metrics_base, length, bs)
                 m_t = find_metrics(m_target, length, bs)
                 if m_b is None or m_t is None:
@@ -203,13 +231,15 @@ def plot_with_bs(metrics_base, metrics_targets, args):
                 plt_data[-1]["y"].append((m_t.throughput[0] + m_t.throughput[1]) / (m_b.throughput[0] + m_b.throughput[1]))
     print(f"plting data: {plt_data}")
     for data in plt_data:
-        plt.plot(data["x"], data["y"], label=data["label"])
+        ls, ms = get_plot_style_from_label(data["label"])
+        plt.plot(data["x"], data["y"], linestyle=ls, marker=ms, label=data["label"])
         if args.plot_ann:
             for i, y in enumerate(data["y"]):
                 plt.annotate(f"{data['y'][i]:0.2f}", xy=(data["x"][i], data["y"][i]), xytext=(data["x"][i], data["y"][i]))
     plt.title(f"Speedup vs: {metrics_base[0].get_plot_label()}")
     plt.xlabel("batch size")
     plt.ylabel("speedup")
+    plt.xticks(xticks)
     plt.legend()
     #plt.grid(True)
     if args.output:
@@ -241,29 +271,7 @@ def plot_with_best(best_metrics_base, best_metrics_targets, args):
             plt_data[-1]["ann"].append(f"{plt_data[-1]['y'][-1]:.2f}({mt.extra_bs[3]}/{mb.extra_bs[3]})")
     print(f"plting data: {plt_data}")
     for data in plt_data:
-        ls = "solid"
-        ms = "o"
-        if "h100" in data["label"]:
-            ls = "dashed"
-            ms = "s"
-        elif "h2o" in data["label"]:
-            ls = "dashdot"
-            ms = "v"
-        elif "a100" in data["label"]:
-            ls = "dotted"
-            ms = "^"
-        elif "a800" in data["label"]:
-            ls = "-."
-            ms = "d"
-        elif "l20" in data["label"]:
-            ls = "--"
-            ms = "x"
-        elif "l40" in data["label"]:
-            ls = "-"
-            ms = "*"
-        elif "a6000" in data["label"]:
-            ls = ":"
-            ms = "."
+        ls, ms = get_plot_style_from_label(data["label"])
         plt.plot(data["x"], data["y"], linestyle=ls, marker=ms, label=data["label"])
         if args.plot_ann:
             for i, y in enumerate(data["y"]):
