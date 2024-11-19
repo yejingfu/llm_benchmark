@@ -297,7 +297,33 @@ def main(args: argparse.Namespace):
     targets = args.targets.split(",")
     metrics_targets = []
     best_metrics_targets = []
+    filter_parts = None
+    if args.plot_filter:
+        filter_parts = args.plot_filter.split(",")
+        if "bf16" in filter_parts:
+            filter_parts.remove("bf16")
+        if "fp8" in filter_parts:
+            filter_parts.remove("fp8")
+    target_paths = []
     for t in targets:
+        if os.path.isdir(t):
+            tt = []
+            for subdir in os.listdir(t):
+                subpath = os.path.join(t, subdir)
+                if os.path.isdir(subpath):
+                    if filter_parts is None or len(filter_parts) == 0:
+                        tt.append(subpath)
+                    elif subdir in filter_parts:
+                        tt.append(subpath)
+            for subdir in tt:
+                for subfilename in os.listdir(subdir):
+                    subpath = os.path.join(subdir, subfilename)
+                    if os.path.isfile(subpath) and not os.path.samefile(args.base, subpath):
+                        target_paths.append(subpath)
+        else:
+            if not os.path.samefile(args.base, t):
+                target_paths.append(t)
+    for t in target_paths:
         (m1, m2) = load_metrics_from_file(t, True)
         if args.plot_filter:
             m1 = filter_metrics(m1, args.plot_filter)
@@ -306,7 +332,7 @@ def main(args: argparse.Namespace):
             metrics_targets.append(m1)
         if len(m2) > 0:
             best_metrics_targets.append(m2)
-    print(f"baseline: {metrics_base[0].get_plot_label()}")    
+    print(f"baseline: {metrics_base[0].get_plot_label()}")
     if "best" in args.plot_bs:
         plot_with_best(best_metrics_base, best_metrics_targets, args)
     else:
