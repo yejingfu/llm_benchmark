@@ -214,20 +214,20 @@ def plot_with_bs(metrics_base, metrics_targets, args):
         print(f"target[{i}]: {metrics_targets[i][0].get_plot_label()}")
 
     plt_data = []
-    xticks = []
     for i in range(len(metrics_targets)):
         m_target = metrics_targets[i]
         for length in plt_length:
             length = int(length)
             plt_data.append({"label": m_target[0].get_plot_label()+f"#{length}", "x": [], "y": []})
+            x_val = 1
             for bs in plt_bs:
                 bs = int(bs)
-                xticks.append(bs)
                 m_b = find_metrics(metrics_base, length, bs)
                 m_t = find_metrics(m_target, length, bs)
                 if m_b is None or m_t is None:
                     raise RuntimeError(f"Not found right metrics data, length: {length}, bs: {bs}, base: {m_b}, target: {m_t}")
-                plt_data[-1]["x"].append(bs)
+                plt_data[-1]["x"].append(x_val)
+                x_val += 1
                 plt_data[-1]["y"].append((m_t.throughput[0] + m_t.throughput[1]) / (m_b.throughput[0] + m_b.throughput[1]))
     print(f"plting data: {plt_data}")
     for data in plt_data:
@@ -239,7 +239,7 @@ def plot_with_bs(metrics_base, metrics_targets, args):
     plt.title(f"Speedup vs: {metrics_base[0].get_plot_label()}")
     plt.xlabel("batch size")
     plt.ylabel("speedup")
-    plt.xticks(xticks)
+    plt.xticks([i+1 for i in range(len(plt_bs))], plt_bs)
     plt.legend()
     #plt.grid(True)
     if args.output:
@@ -256,17 +256,18 @@ def plot_with_best(best_metrics_base, best_metrics_targets, args):
         plt_length = DEF_PLOT_LENGTH[1:]
     ## x: length(1000, 3000, 5000), y: rate (p90)
     plt_data = []
-    x_ticks = [int(i) for i in plt_length]
     for i in range(len(best_metrics_targets)):
         target = best_metrics_targets[i]
         plt_data.append({"label": target[0].get_plot_label(), "x": [], "y": [], "ann": []})
+        x_val = 1
         for length in plt_length:
             length = int(length)
             mb = find_metrics(best_metrics_base, length, None)
             mt = find_metrics(target, length, None)
             if mb is None or mt is None:
                 raise RuntimeError(f"Not found right metrics data, length: {length}, base: {m_b}, target: {m_t}")
-            plt_data[-1]["x"].append(length)
+            plt_data[-1]["x"].append(x_val)
+            x_val += 1
             plt_data[-1]["y"].append(mt.throughput[3] / mb.throughput[3])
             plt_data[-1]["ann"].append(f"{plt_data[-1]['y'][-1]:.2f}({mt.extra_bs[3]}/{mb.extra_bs[3]})")
     print(f"plting data: {plt_data}")
@@ -280,7 +281,7 @@ def plot_with_best(best_metrics_base, best_metrics_targets, args):
     plt.title(f"Speedup vs: {best_metrics_base[0].get_plot_label()}")
     plt.xlabel("Context length")
     plt.ylabel("Speedup")
-    plt.xticks(x_ticks)
+    plt.xticks([i+1 for i in range(len(plt_length))], plt_length)
     plt.legend()
     plt.grid(True)
     if args.output:
