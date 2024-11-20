@@ -163,6 +163,10 @@ function run_benchmark() {
         LOG INFO "[RUN] python3 -m vllm.entrypoints.openai.api_server $server_args"
         python3 -m vllm.entrypoints.openai.api_server $server_args
     elif [[ x"$BM_CLIENT_ONLY" != x"" ]]; then
+        if ! python3 -c "import loguru" &> /dev/null; then
+            LOG INFO "Install loguru"
+            pip install loguru
+        fi
         local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
         local client_args="--endpoint $BM_CLIENT_ONLY --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
         if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
