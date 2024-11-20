@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
 
-DEF_PLOT_LENGTH=6000
-
 DEF_DOLLAR_OF_GPU={
     "4090": 0.19,
     "a100": 0.99,
@@ -14,7 +12,7 @@ DEF_DOLLAR_OF_GPU={
     "h2o": 0.57
 }
 
-DEF_MERGE_SAME_GPU=True
+DEF_MERGE_SAME_GPU=False
 
 @dataclass
 class MetricsData:
@@ -117,7 +115,7 @@ def load_metrics_from_file(file_path: str, update_model_name: bool) -> List[Metr
             line = f.readline()
     return best_metrics
 
-def filter_metrics(metrics, filters: str):
+def filter_metrics(metrics, filters: str, input_len: int):
     parts = filters.split(",")
     if "fp8" not in parts and "bf16" not in parts:
         check_fp8 = True
@@ -131,7 +129,7 @@ def filter_metrics(metrics, filters: str):
             parts.remove("bf16")
     result = []
     for m in metrics:
-        if m.input_len != DEF_PLOT_LENGTH:
+        if m.input_len != input_len:
             continue
         if not (check_fp8 and check_bf16):
             if check_fp8 and "fp8" not in m.model:
@@ -225,7 +223,7 @@ def main(args: argparse.Namespace):
     for t in paths:
         m = load_metrics_from_file(t, True)
         if args.plot_filter:
-            m = filter_metrics(m, args.plot_filter)
+            m = filter_metrics(m, args.plot_filter, args.plot_length)
         if len(m) > 0:
             metrics.append(m)
     for m in metrics:
@@ -239,6 +237,7 @@ if __name__ == "__main__":
     parser.add_argument("--log-files", type=str, help="The benchmark files, can be file or directory, separated by comma")
     parser.add_argument("--plot-filter", type=str, help="If set, Filter out the specific metrics, it can be model type(fp8,bf16) or GPU type(4090,a100,h100,h20,...)")
     parser.add_argument("--plot-ann", action="store_true", help="If set, plot the value for each point")
+    parser.add_argument("--plot-length", type=int, default=6000, help="Only plot the metrics with the specific length, default is 6000")
     parser.add_argument("--output", type=str, help="If set, save the graph into the output file")
     args = parser.parse_args()
     main(args)
