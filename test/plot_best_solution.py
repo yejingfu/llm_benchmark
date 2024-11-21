@@ -157,7 +157,7 @@ def plot_best_solution(metrics, args):
         num, gpu, price = MetricsData.get_gpu_info(m.get_plot_label())
         data["gpu"] = gpu
         data["x"] = price * 1e6 / 3600 / m.throughput[3]
-        data["y"] = m.throughput[3] / num
+        data["y"] = m.throughput[3]
         found = False
         if DEF_MERGE_SAME_GPU:
             for i in range(len(plt_data)):
