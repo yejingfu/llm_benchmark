@@ -1,14 +1,16 @@
-from openai import OpenAI
+#from openai import OpenAI
 import argparse
 import time
+import aiohttp
+import asyncio
+import json
+import random
+from collections import OrderedDict
 
-base_url = "http://localhost:8000/v1"
-api_key = "123456"
-
-system_prompt = """
+SYSTEM_PROMPT= """
 Generate responses exclusively in valid JSON format with no additional text. Each response must be a fully structured JSON object without explanations, introductions, or comments. Ensure that the JSON is complete and valid, ready to be used directly in a JSON validator.
 """
-prompt_prefix = """
+PROMPT_PREFIX = """
 Generate a minified JSON object with the structure:
 {"formatted_description": "DESCRIPTION"}
 Replace DESCRIPTION with an HTML-formatted version of the following text that:
@@ -30,12 +32,12 @@ Do not include explanations or additional text or markup outside the JSON object
 Original text to rewrite:
 
 """
-prompt_suffix = """
+PROMPT_SUFFIX = """
 
 Ensure the output is a single, minified JSON object with properly escaped content and no problematic Unicode characters.
 """
 
-user_prompts = [
+USER_PROMPTS = [
 {"lang": "fr", "content":
 """
 <p>Nous recherchons actuellement un ExpertComptable Calais.</p><p>Salaire : Entre 50 000 et 60 000 brut annuel assorti davantages tels que des tickets restaurant une mutuelle des jours de RTT une flexibilit horaire la participation au Comit Social et conomique (CSE) un statut cadre des chques cadeaux pour Nol et les vacances ainsi que la possibilit de tltravail occasionnel selon les besoins.</p><p>Contrat : CDI cadre sur une base de 39 heures par semaine.</p><p>DESCRIPTION DU POSTE</p><p>Ce poste a pour vocation de progresser vers un statut dassoci (association dans le cadre dun LBO).</p><p>Vous serez responsable de la gestion autonome dun portefeuille clients constitu de TPE/PME en vous appuyant sur vos comptences techniques en fiscalit et en comptabilit.</p><p>Vos missions comprendront ltablissement de prvisionnels de bilans de liasses fiscales de comptes de rsultat ainsi que la gestion des dclarations dimpts sur le revenu.</p><p>Selon votre degr dautonomie vous pourrez tre soutenu(e) dans un premier temps par lun des expertscomptables associs. Votre mission principale consistera encadrer une quipe de 2 3 collaborateurs et fournir des conseils personnaliss un portefeuille de clients plus importants.</p><p>Vous participerez galement au dveloppement du cabinet aux cts des expertscomptables associs (actuellement au nombre de 4).</p><p>PROFIL RECHERCH</p><p>Idalement titulaire du Diplme dExpertise Comptable (DEC) ou en voie de lobtenir ou encore mmorialiste.</p><p>Vous justifiez dau moins 3 ans dexprience dans un cabinet dexpertise comptable.</p><p>Vous matrisez les outils informatiques et possdez de solides comptences en logiciels de comptabilit et de gestion (CRM).</p>
@@ -85,18 +87,55 @@ Es para ayudarme a terminar de montar una piscina de poliéster enterrada. Monta
 """
 }]
 
-def main(args: argparse.Namespace):
-    client = OpenAI(
-        base_url=args.endpoint,
-        api_key=api_key,
-    )
-    stream = False
+DEF_TEMPERATURE = 0
+DEF_TOP_P = 1
+DEF_PRESENCE_PENALTY = 0
+DEF_FREQ_PENALTY = 0
+
+def get_chat_payload(req, args):
+    content = PROMPT_PREFIX.replace("{lang_code}", req["lang"]) + req["content"] + PROMPT_SUFFIX
     enable_json_mode = not args.no_json
-    max_tokens = 1024
     extra_body = None
     response_format = None
+    obj = {
+        "temperature": DEF_TEMPERATURE,
+        "top_p": DEF_TOP_P,
+        "presence_penalty": DEF_PRESENCE_PENALTY,
+        "frequency_penalty": DEF_FREQ_PENALTY,
+        #"repetition_penalty": 1,
+        "stop": ["<|eot_id|>", "<start_header_id|>", "<|end_header_id|>"],
+        "model": args.model,
+        "messages": [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        },
+        {
+            "role": "user",
+            "content": content,
+        }],
+        "max_tokens": args.max_tokens,
+        "response_format": response_format
+    }
+    if not args.no_json:
+        obj["guided_json"] = {
+            "type": "object",
+            "properties": {
+                "formatted_description": {"title": "description", "type": "string"}
+            },
+            "required": ["formatted_description"]
+        }
+    if args.stream:
+        obj["stream"] = args.stream,
+    return obj
 
-    if enable_json_mode:
+async def send_one_request_openai(req, args):
+    start_time = time.time()
+    content = PROMPT_PREFIX.replace("{lang_code}", req["lang"]) + req["content"] + PROMPT_SUFFIX
+    enable_json_mode = not args.no_json
+    extra_body = None
+    response_format = None
+    if not args.no_json:
         extra_body={
             #"guided_decoding_backend": "lm-format-enforcer",
             #"guided_whitespace_pattern": r"[\n\t ]*",
@@ -112,45 +151,115 @@ def main(args: argparse.Namespace):
             },
         }
 
-    for i in range(args.num_tests):
-        for j, user_prompt in enumerate(user_prompts):
-            print(f"[enable json mode: {enable_json_mode}] Run Case {i} - {j}")
-            content = prompt_prefix.replace("{lang_code}", user_prompt["lang"]) + user_prompt["content"] + prompt_suffix
-            #print(f"user prompt: {content}")
-            start_time = time.time()
-            chat_completion = client.chat.completions.create(
-                temperature=0,
-                top_p=1,
-                presence_penalty=0,
-                frequency_penalty=0,
-                #repetition_penalty=1,
-                stop=["<|eot_id|>", "<start_header_id|>", "<|end_header_id|>"],
-                stream=stream,
-                model=f"{args.model}",
-                messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": content,
-                }],
-                max_tokens=max_tokens,
-                extra_body=extra_body,
-                response_format=response_format,
-            )
-            if stream:
-                for chunk in chat_completion:
-                    print(chunk.choices[0].delta.content or "", end="")
-            else:
-                #print(chat_completion.usage)
-                print("==== response ====")
-                print(chat_completion.choices[0].message.content)
-            end_time = time.time()
-            print(f"\nTime taken: {end_time - start_time:.2f} seconds, {chat_completion.usage.completion_tokens} tokens")
-            print("----------------------------------------------")
+    chat_completion = client.chat.completions.create(
+        temperature=DEF_TEMPERATURE,
+        top_p=DEF_TOP_P,
+        presence_penalty=DEF_PRESENCE_PENALTY,
+        frequency_penalty=DEF_FREQ_PENALTY,
+        #repetition_penalty=1,
+        stop=["<|eot_id|>", "<start_header_id|>", "<|end_header_id|>"],
+        stream=args.stream,
+        model=args.model,
+        messages=[
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        },
+        {
+            "role": "user",
+            "content": content,
+        }],
+        max_tokens=args.max_tokens,
+        extra_body=extra_body,
+        response_format=response_format,
+    )
+    if args.stream:
+        for chunk in chat_completion:
+            print(chunk.choices[0].delta.content or "", end="")
+    else:
+        #print(chat_completion.usage)
+        print("==== response ====")
+        print(chat_completion.choices[0].message.content)
+    end_time = time.time()
+    print(f"\nTime taken: {end_time - start_time:.2f} seconds, {chat_completion.usage.completion_tokens} tokens")
+    print("----------------------------------------------")
 
+
+
+async def send_one_request(index, req, args):
+    url = args.endpoint + "/chat/completions"
+    payload = get_chat_payload(req, args)
+    #print(f"==== payload: {payload}")
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6 * 60 * 60)) as session:
+        request_start_time = time.perf_counter()
+        async with session.post(url, headers=OrderedDict({"Content-Type": "application/json"}), json=payload) as res:
+            if res.status != 200:
+                text = await res.text()
+                print(f"ERROR: {res.status}--{res.reason}: {text}")
+            else:
+                generated = ""
+                e2e_latency = 0
+                input_tokens = 0
+                output_tokens = 0
+                async for chunk_bytes in res.content:
+                    chunk_bytes = chunk_bytes.strip()
+                    if not chunk_bytes:
+                        continue
+                    try:
+                        chunk = chunk_bytes.decode("utf-8")
+                        if chunk.startswith("data: "):
+                            chunk = chunk[6:]
+                        #print(f"==== chunk: ++{chunk}++")
+                        if chunk == ": OPENROUTER PROCESSING":
+                            continue
+                        if chunk == "[DONE]":
+                            e2e_latency = time.perf_counter() - request_start_time
+                        else:
+                            obj = json.loads(chunk)
+                            #print(f"=== output json: {obj}")
+                            content = None
+                            if "choices" in obj:
+                                choice0 = obj["choices"][0]
+                                if "text" in choice0:
+                                    content = choice0["text"]
+                                elif "delta" in choice0:
+                                    if "content" in choice0["delta"]:
+                                        content = choice0["delta"]["content"]
+                                elif "message" in choice0:
+                                    if "content" in choice0["message"]:
+                                        content = choice0["message"]["content"]
+                            if "usage" in obj:
+                                input_tokens = obj["usage"]["prompt_tokens"]
+                                output_tokens = obj["usage"]["completion_tokens"]
+                            if content is not None:
+                                generated += content
+                    except json.decoder.JSONDecodeError as err:
+                        print(f"JSON DECODE ERROR: {chunk}, {err}")
+                    except Exception as err:
+                        print(f"Failed to handle streaming chunk: {res.status}, error: {err}")
+                if e2e_latency == 0:
+                    e2e_latency = time.perf_counter() - request_start_time
+                print(f"\n\nTestCase[{index}]\nE2E latency: {e2e_latency:.2f}, sec/token: {(e2e_latency/output_tokens):.3f}, Generated({input_tokens},{output_tokens}):\n{generated}")
+
+async def send_batch_requests(reqs, args):
+    num = len(reqs)
+    t1 = time.perf_counter()
+    print(f"Begin send {num} requests")
+    tasks: List[asyncio.Task] = []
+    for i in range(num):
+        tasks.append(asyncio.create_task(send_one_request(i, reqs[i], args)))
+    await asyncio.gather(*tasks)
+    t2 = time.perf_counter()
+    print(f"End send {num} requests, time: {(t2 - t1):.2f}\n")
+
+def main(args: argparse.Namespace):
+    num_prompts = len(USER_PROMPTS)
+    base_prompts = USER_PROMPTS * (args.parallel * args.num_tests // num_prompts + 1)
+    for i in range(args.num_tests):
+        print(f"===== Testing iteration: {i}")
+        offset = random.randint(0, len(base_prompts) - args.parallel)
+        reqs = base_prompts[offset:offset+args.parallel]
+        asyncio.run(send_batch_requests(reqs, args))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -158,8 +267,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--endpoint", type=str, help="The LLM serving endpoint, for example: http://localhost:18011/v1")
     parser.add_argument("--model", type=str, help="The model name")
-    parser.add_argument("--num-tests", type=int, default=1, help="The number of tests")
+    parser.add_argument("--num-tests", type=int, default=1, help="The number of tests, default is 1")
+    parser.add_argument("--parallel", type=int, default=1, help="The number of requests at the same time, default is 1")
+    parser.add_argument("--max-tokens", type=int, default=1024, help="The max tokens of generated result, default is 1024")
     parser.add_argument("--no-json", action="store_true", help="Disable JSON output if set")
+    parser.add_argument("--stream", action="store_true", help="Output with streaming mode")
 
     args = parser.parse_args()
     main(args)
