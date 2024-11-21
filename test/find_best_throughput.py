@@ -236,7 +236,8 @@ def main(args: argparse.Namespace):
             output += f"{kk}\n"
             for p in show_percentile:
                 mm = m[kk][p]
-                output += f"\t[{p}] ttft: {mm['ttft']}, bs: {mm['bs']}, tps: {mm['tps']}, throughput: {int(mm['throughput'])}, $/MTokens: {(price * 1e6 / 3600 / mm['throughput']):.3f}\n"
+                if mm["throughput"] > 0:
+                    output += f"\t[{p}] ttft: {mm['ttft']}, bs: {mm['bs']}, tps: {mm['tps']}, throughput: {int(mm['throughput'])}, $/MTokens: {(price * 1e6 / 3600 / mm['throughput']):.3f}\n"
     print(output)
     if args.output:
         with open(args.output, "a") as f:
