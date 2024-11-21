@@ -20,6 +20,7 @@ BM_MODELS=
 BM_TPS=
 BM_TOKENIZER_DIR=
 BM_TEST_STRENGTH="high"
+BM_OUT_DIR="out"
 BM_SERVER_ONLY=
 BM_CLIENT_ONLY=
 
@@ -35,10 +36,11 @@ function usage() {
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
-    LOG INFO "  --test-strength The test strength level, can be: low, middle, high, very-high, default is high"
-    LOG INFO "  --setup Setup the testing envrionment, like install docker and git-lfs"
-    LOG INFO "  --server-only Run vLLM engine directly"
-    LOG INFO "  --client-only Run the client only, input server endpoint to connect"
+    LOG INFO "  --test-strength(optional) The test strength level, can be: low, middle, high, very-high, default is high"
+    LOG INFO "  --out-dir(optional) The output folder to save the test results, default is out"
+    LOG INFO "  --setup(optional) Setup the testing envrionment, like install docker and git-lfs"
+    LOG INFO "  --server-only(optional) Run vLLM engine directly"
+    LOG INFO "  --client-only(optional) Run the client only, input server endpoint to connect"
     exit
 }
 
@@ -167,7 +169,7 @@ function run_benchmark() {
             LOG INFO "Install loguru"
             pip install loguru
         fi
-        local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
+        local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
         local client_args="--endpoint $BM_CLIENT_ONLY --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
         if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
             client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
@@ -182,7 +184,7 @@ function run_benchmark() {
         $CUR_DIR/launch_benchmark.sh $client_args
         python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
     else
-        local log_file_path="out/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
+        local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
         local port=$((18000+RANDOM%100))
         local server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
         if [[ "$served_name" == *llama3-* ]]; then
@@ -247,8 +249,8 @@ function run() {
         LOG INFO "Downloading dataset from: $HF_ENDPOINT/$DEF_DS_HF_PATH"
         wget $HF_ENDPOINT/$DEF_DS_HF_PATH
     fi
-    if [[ ! -d out ]]; then
-        mkdir out
+    if [[ ! -d $BM_OUT_DIR ]]; then
+        mkdir $BM_OUT_DIR
     fi
     for i in $(seq 0 $((num_models - 1)));do
         run_benchmark "${model_names[$i]}" ${tps[$i]}
@@ -309,6 +311,11 @@ function main() {
     --client-only)
         shift
         BM_CLIENT_ONLY="$1"
+        shift
+        ;;
+    --out-dir)
+        shift
+        BM_OUT_DIR="$1"
         shift
         ;;
     *)
