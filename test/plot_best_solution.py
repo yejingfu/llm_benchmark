@@ -55,7 +55,7 @@ class MetricsData:
         for key in DEF_DOLLAR_OF_GPU:
             if gpu.find(key) == 0:
                 price = num * DEF_DOLLAR_OF_GPU[key]
-                break;
+                break
         return num, gpu, price
 
 def load_metrics_from_file(file_path: str, update_model_name: bool) -> List[MetricsData]:

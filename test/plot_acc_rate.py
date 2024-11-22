@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 DEF_PLOT_BS=["all", "best", "1", "4", "8", "10", "15"]
 DEF_PLOT_LENGTH=["all", "1000", "3000", "5000", "6000"]
+DEF_PLOT_THROUGHPUT_PER_GPU = True
 
 @dataclass
 class MetricsData:
@@ -22,6 +23,7 @@ class MetricsData:
     tps: List[float] = field(default_factory=list)
     ## summary
     throughput: List[float] = field(default_factory=list)
+    throughput_per_gpu: List[float] = field(default_factory=list)
     ## raw data
     raw_ttft: Optional[List[float]] = field(default_factory=list)
     raw_tpot: Optional[List[float]] = field(default_factory=list)
@@ -34,6 +36,18 @@ class MetricsData:
             return self.model.replace("llama", "l") + "@" + self.name
         else:
             return self.model + "@" + self.name
+
+    @classmethod
+    def get_gpu_info(cls, label):
+        ## parse from name: 1xh100 => 1, "h100"
+        name = label[label.find("@")+1:]
+        num = 1
+        gpu = name
+        pos = name.find("x")
+        if pos > 0:
+            num = int(name[0:pos])
+            gpu = name[pos+1:]
+        return num, gpu
 
 def load_metrics_from_file(file_path: str, update_model_name: bool) -> Tuple[List[MetricsData], List[MetricsData]]:
     metrics=[]
@@ -166,6 +180,12 @@ def filter_metrics(metrics, filters: str):
             result.append(m)
     return result
 
+def calc_throughput_per_gpu(metrics):
+    for m in metrics:
+        num, gpu = MetricsData.get_gpu_info(m.get_plot_label())
+        assert num > 0, f"Not get num of gpus from label: {m.get_plot_label()}"
+        m.throughput_per_gpu = [tmp / num for tmp in m.throughput]
+
 def find_metrics(metrics, input_len, bs):
     for m in metrics:
         if bs is None:
@@ -203,6 +223,9 @@ def get_plot_style_from_label(label:str) -> Tuple[str, str]:
     return ls, ms
 
 def plot_with_bs(metrics_base, metrics_targets, args):
+    calc_throughput_per_gpu(metrics_base)
+    for m in metrics_targets:
+        calc_throughput_per_gpu(m)
     plt_bs = args.plot_bs.split(",")
     if "all" in plt_bs:
         plt_bs = DEF_PLOT_BS[2:]
@@ -214,41 +237,93 @@ def plot_with_bs(metrics_base, metrics_targets, args):
         print(f"target[{i}]: {metrics_targets[i][0].get_plot_label()}")
 
     plt_data = []
+    plt_data_bar = {} # "length" => [ {"label": "label", "x": 1, "y": 1.0}, ... ]
     for i in range(len(metrics_targets)):
         m_target = metrics_targets[i]
-        for length in plt_length:
-            length = int(length)
-            plt_data.append({"label": m_target[0].get_plot_label()+f"#{length}", "x": [], "y": []})
+        for str_len in plt_length:
+            if str_len not in plt_data_bar:
+                plt_data_bar[str_len] = []
+            length = int(str_len)
             x_val = 1
+            plt_data.append({"label": m_target[0].get_plot_label()+f"#{length}", "x": [], "y": []})
+            plt_data_bar[str_len].append({"label": m_target[0].get_plot_label(), "x": x_val, "y": 0})
+            base_throughput_all_bs = 0
             for bs in plt_bs:
                 bs = int(bs)
                 m_b = find_metrics(metrics_base, length, bs)
                 m_t = find_metrics(m_target, length, bs)
                 if m_b is None or m_t is None:
                     raise RuntimeError(f"Not found right metrics data, length: {length}, bs: {bs}, base: {m_b}, target: {m_t}")
+                base_throughput = m_b.throughput_per_gpu[0] + m_b.throughput_per_gpu[1] if DEF_PLOT_THROUGHPUT_PER_GPU else m_b.throughput[0] + m_b.throughput[1]
+                target_throughput = m_t.throughput_per_gpu[0] + m_t.throughput_per_gpu[1] if DEF_PLOT_THROUGHPUT_PER_GPU else m_t.throughput[0] + m_t.throughput[1]
                 plt_data[-1]["x"].append(x_val)
+                plt_data[-1]["y"].append(target_throughput / base_throughput)
+                plt_data_bar[str_len][-1]["y"] += target_throughput
+                base_throughput_all_bs += base_throughput
                 x_val += 1
-                plt_data[-1]["y"].append((m_t.throughput[0] + m_t.throughput[1]) / (m_b.throughput[0] + m_b.throughput[1]))
-    print(f"plting data: {plt_data}")
-    for data in plt_data:
-        ls, ms = get_plot_style_from_label(data["label"])
-        plt.plot(data["x"], data["y"], linestyle=ls, marker=ms, label=data["label"])
-        if args.plot_ann:
-            for i, y in enumerate(data["y"]):
-                plt.annotate(f"{data['y'][i]:0.2f}", xy=(data["x"][i], data["y"][i]), xytext=(data["x"][i], data["y"][i]))
-    plt.title(f"Speedup vs: {metrics_base[0].get_plot_label()}")
-    plt.xlabel("batch size")
-    plt.ylabel("speedup")
-    plt.xticks([i+1 for i in range(len(plt_bs))], plt_bs)
-    plt.legend()
-    #plt.grid(True)
+            plt_data_bar[str_len][-1]["y"] /= base_throughput_all_bs
+
+    if args.plot_bar:
+        bar_legend_len = plt_length[0] if len(plt_length) == 1 else f"mean({','.join(plt_length)})"
+        if bar_legend_len not in plt_data_bar:
+            mean_data = []
+            for str_len in plt_data_bar:
+                for elem in plt_data_bar[str_len]:
+                    lab = elem["label"]
+                    found = False
+                    for d in mean_data:
+                        if d["label"] == lab:
+                            found = True
+                            d["y"] += elem["y"]
+                            break
+                    if not found:
+                        mean_data.append({"label": lab, "x": 0, "y": elem["y"]})
+            plt_data_bar[bar_legend_len] = []
+            for i in range(len(mean_data)):
+                mean_data[i]["y"] /= (len(plt_data_bar)-1)
+                plt_data_bar[bar_legend_len].append(mean_data[i])
+
+        plt_data_bar[bar_legend_len].sort(key=lambda x: x["y"], reverse=True)
+        for i in range(len(plt_data_bar[bar_legend_len])):
+            elem = plt_data_bar[bar_legend_len][i]
+            elem["x"] = i
+        print(f"plting data(bar): {plt_data_bar}")
+        xticks_label = [x["label"] for x in plt_data_bar[bar_legend_len]]
+        x_pos = [x["x"] for x in plt_data_bar[bar_legend_len]]
+        y_val = [x["y"] for x in plt_data_bar[bar_legend_len]]
+        bars = plt.bar(x_pos, y_val, label=f"length={bar_legend_len}")
+        for i, bar in enumerate(bars):
+            h = bar.get_height()
+            plt.annotate(f"{y_val[i]:.1f}", xy=(bar.get_x() + 0.2*bar.get_width(), h), xytext=(0,5), textcoords="offset points")
+        plt.title(f"Per GPU Speedup vs: {metrics_base[0].get_plot_label()} (context length: {bar_legend_len})")
+        #plt.xlabel("Context length")
+        plt.ylabel("Speedup")
+        plt.xticks(x_pos, xticks_label, rotation=-45, ha='left', va='top')
+        plt.legend()
+    else:
+        print(f"plting data: {plt_data}")
+        for data in plt_data:
+            ls, ms = get_plot_style_from_label(data["label"])
+            plt.plot(data["x"], data["y"], linestyle=ls, marker=ms, label=data["label"])
+            if args.plot_ann:
+                for i, y in enumerate(data["y"]):
+                    plt.annotate(f"{data['y'][i]:0.2f}", xy=(data["x"][i], data["y"][i]), xytext=(data["x"][i], data["y"][i]))
+        plt.title(f"Speedup vs: {metrics_base[0].get_plot_label()}")
+        plt.xlabel("batch size")
+        plt.ylabel("speedup")
+        plt.xticks([i+1 for i in range(len(plt_bs))], plt_bs)
+        plt.legend()
+        #plt.grid(True)
     if args.output:
         plt.savefig(args.output, dpi=300)
     else:
         plt.show()
 
 def plot_with_best(best_metrics_base, best_metrics_targets, args):
-    print(f"best_metrics_base[{best_metrics_base[0].get_plot_label()}]: {best_metrics_base[0].input_len}, {best_metrics_base[0].ttft}, {best_metrics_base[0].tps}, {best_metrics_base[0].extra_bs}, {best_metrics_base[0].throughput}")
+    calc_throughput_per_gpu(best_metrics_base)
+    for m in best_metrics_targets:
+        calc_throughput_per_gpu(m)
+    print(f"best_metrics_base[{best_metrics_base[0].get_plot_label()}]: {best_metrics_base[0].input_len}, {best_metrics_base[0].ttft}, {best_metrics_base[0].tps}, {best_metrics_base[0].extra_bs}, {best_metrics_base[0].throughput}, {best_metrics_base[0].throughput_per_gpu}")
     for i in range(len(best_metrics_targets)):
         print(f"target[{i}]: {best_metrics_targets[i][0].get_plot_label()}")
     plt_length = args.plot_length.split(",")
@@ -256,34 +331,81 @@ def plot_with_best(best_metrics_base, best_metrics_targets, args):
         plt_length = DEF_PLOT_LENGTH[1:]
     ## x: length(1000, 3000, 5000), y: rate (p90)
     plt_data = []
+    plt_data_bar = {} # "length" => [ {"label": "label", "x": 1, "y": 1.0}, ... ]
     for i in range(len(best_metrics_targets)):
         target = best_metrics_targets[i]
-        plt_data.append({"label": target[0].get_plot_label(), "x": [], "y": [], "ann": []})
+        plt_data.append({"label": target[0].get_plot_label(), "x": [], "y": []})
         x_val = 1
-        for length in plt_length:
-            length = int(length)
+        for str_len in plt_length:
+            if str_len not in plt_data_bar:
+                plt_data_bar[str_len] = []
+            plt_data_bar[str_len].append({"label": target[0].get_plot_label(), "x": x_val, "y": 1.0, "ann": ""})
+            length = int(str_len)
             mb = find_metrics(best_metrics_base, length, None)
             mt = find_metrics(target, length, None)
             if mb is None or mt is None:
-                raise RuntimeError(f"Not found right metrics data, length: {length}, base: {m_b}, target: {m_t}")
+                raise RuntimeError(f"Not found right metrics data, length: {length}, base: {mb}, target: {mt}")
             plt_data[-1]["x"].append(x_val)
+            speedup = mt.throughput_per_gpu[3] / mb.throughput_per_gpu[3] if DEF_PLOT_THROUGHPUT_PER_GPU else mt.throughput[3] / mb.throughput[3]
+            plt_data[-1]["y"].append(speedup)
+            #plt_data[-1]["ann"].append(f"{plt_data[-1]['y'][-1]:.2f}({mt.extra_bs[3]}/{mb.extra_bs[3]})")
+            plt_data_bar[str_len][-1]["y"] = speedup
             x_val += 1
-            plt_data[-1]["y"].append(mt.throughput[3] / mb.throughput[3])
-            plt_data[-1]["ann"].append(f"{plt_data[-1]['y'][-1]:.2f}({mt.extra_bs[3]}/{mb.extra_bs[3]})")
-    print(f"plting data: {plt_data}")
-    for data in plt_data:
-        ls, ms = get_plot_style_from_label(data["label"])
-        plt.plot(data["x"], data["y"], linestyle=ls, marker=ms, label=data["label"])
-        if args.plot_ann:
-            for i, y in enumerate(data["y"]):
-                plt.annotate(data["ann"][i], xy=(data["x"][i], data["y"][i]), xytext=(data["x"][i], data["y"][i]))
-            #plt.annotate(data["label"], xy=(data["x"][-1], data["y"][-1]), xytext=(data["x"][-1], data["y"][-1]))
-    plt.title(f"Speedup vs: {best_metrics_base[0].get_plot_label()}")
-    plt.xlabel("Context length")
-    plt.ylabel("Speedup")
-    plt.xticks([i+1 for i in range(len(plt_length))], plt_length)
-    plt.legend()
-    plt.grid(True)
+    if args.plot_bar:
+        bar_legend_len = plt_length[0] if len(plt_length) == 1 else f"mean({','.join(plt_length)})"
+        if bar_legend_len not in plt_data_bar:
+            mean_data = []
+            for str_len in plt_data_bar:
+                for elem in plt_data_bar[str_len]:
+                    lab = elem["label"]
+                    found = False
+                    for d in mean_data:
+                        if d["label"] == lab:
+                            found = True
+                            d["y"] += elem["y"]
+                            break
+                    if not found:
+                        mean_data.append({"label": lab, "x": 0, "y": elem["y"]})
+            plt_data_bar[bar_legend_len] = []
+            for i in range(len(mean_data)):
+                mean_data[i]["y"] /= (len(plt_data_bar) - 1)
+                plt_data_bar[bar_legend_len].append(mean_data[i])
+
+        plt_data_bar[bar_legend_len].sort(key=lambda x: x["y"], reverse=True)
+        for i in range(len(plt_data_bar[bar_legend_len])):
+            elem = plt_data_bar[bar_legend_len][i]
+            elem["x"] = i
+        print(f"plting data(bar): {plt_data_bar}")
+        xticks_pos = []
+        xticks_label = []
+        x_val = [x["x"] for x in plt_data_bar[bar_legend_len]]
+        y_val = [x["y"] for x in plt_data_bar[bar_legend_len]]
+        xticks_pos.extend(x_val)
+        xticks_label.extend([x["label"] for x in plt_data_bar[bar_legend_len]])
+        bars = plt.bar(x_val, y_val, label=f"length={bar_legend_len}")
+        for i, bar in enumerate(bars):
+            h = bar.get_height()
+            plt.annotate(f"{y_val[i]:.1f}", xy=(bar.get_x() + 0.2*bar.get_width(), h), xytext=(0,5), textcoords="offset points")
+        plt.title(f"Per GPU Speedup vs: {best_metrics_base[0].get_plot_label()} (context length: {bar_legend_len})")
+        #plt.xlabel("Context length")
+        plt.ylabel("Speedup")
+        plt.xticks(xticks_pos, xticks_label, rotation=-45, ha='left', va='top')
+        plt.legend()
+    else:
+        print(f"plting data: {plt_data}")
+        for data in plt_data:
+            ls, ms = get_plot_style_from_label(data["label"])
+            plt.plot(data["x"], data["y"], linestyle=ls, marker=ms, label=data["label"])
+            if args.plot_ann:
+                for i, y in enumerate(data["y"]):
+                    plt.annotate(data["ann"][i], xy=(data["x"][i], data["y"][i]), xytext=(data["x"][i], data["y"][i]))
+                #plt.annotate(data["label"], xy=(data["x"][-1], data["y"][-1]), xytext=(data["x"][-1], data["y"][-1]))
+        plt.title(f"Speedup vs: {best_metrics_base[0].get_plot_label()}")
+        plt.xlabel("Context length")
+        plt.ylabel("Speedup")
+        plt.xticks([i+1 for i in range(len(plt_length))], plt_length)
+        plt.legend()
+        plt.grid(True)
     if args.output:
         plt.savefig(args.output, dpi=300)
     else:
@@ -348,6 +470,7 @@ if __name__ == "__main__":
     parser.add_argument("--plot-bs", type=str, default="all", help=f"Which batch size to show, can be {DEF_PLOT_BS}, default is all")
     parser.add_argument("--plot-length", type=str, default="all", help="The context lengths, can be {DEF_PLOT_LENGTH}, default is all")
     parser.add_argument("--plot-ann", action="store_true", help="If set, plot the value for each point")
+    parser.add_argument("--plot-bar", action="store_true", help="If set, plot bar chart instead of line chart")
     parser.add_argument("--plot-filter", type=str, help="If set, Filter out the specific metrics, it can be model type(fp8,bf16) or GPU type(4090,a100,h100,h20,...)")
     parser.add_argument("--output", type=str, help="If set, save the graph into the output file")
     args = parser.parse_args()
