@@ -163,7 +163,7 @@ function run_benchmark() {
         fi
         server_args="$server_args --swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
         LOG INFO "[RUN] python3 -m vllm.entrypoints.openai.api_server $server_args"
-        python3 -m vllm.entrypoints.openai.api_server $server_args
+        CUDA_VISIBLE_DEVICES=$BM_GPU_IDS python3 -m vllm.entrypoints.openai.api_server $server_args
     elif [[ x"$BM_CLIENT_ONLY" != x"" ]]; then
         if ! python3 -c "import loguru" &> /dev/null; then
             LOG INFO "Install loguru"
