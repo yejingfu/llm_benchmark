@@ -117,9 +117,8 @@ function run() {
                 docker rm -f $docker_name
                 docker_name=
                 LOG ERR "No log returned from: $docker_name"
-            elif echo "$ret" | grep -q -i "ERROR"; then
+            elif echo "$ret" | grep -q "ERROR"; then
                 docker rm -f $docker_name
-                docker_name=
                 LOG ERR "Failed to run docker instance: $docker_name"
             fi
             if echo "$ret" | grep -q "Route: /v1/chat/completions"; then
