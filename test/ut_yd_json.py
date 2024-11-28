@@ -6,6 +6,7 @@ import aiohttp
 import asyncio
 import json
 import random
+import numpy as np
 from collections import OrderedDict
 from typing import Dict, Optional
 from dataclasses import dataclass, field, asdict
@@ -90,6 +91,8 @@ Zorgwerk bemiddelt uitzendmedewerkers en zzp'ers in de <b>zorg</b>, onderwijs, h
 Es para ayudarme a terminar de montar una piscina de poliéster enterrada. Montaje de depuradora y todo lo que conlleva.<ul><li>Indica el trabajo de albañilería que se necesita </li> Terminar de hacer una piscina de poliéster enterrada<br><br><li>¿Qué tipo de trabajos de albañilería hay que realizar? </li> Solera de hormigón o similar, pequeñas construcciones (casetas, montar barbacoas, etc.)<br><br><li>Partes del inmueble sobre las que trabajará el albañil </li> Terraza<br><br><li>Tipo de profesional que se quiere contratar </li> Albañil oficial de primera (€€€)<br><br><li>Tipo de inmueble o propiedad </li> Vivienda unifamiliar<br><br><li>Perfil del inmueble donde se realizará el trabajo de albañilería </li> En propiedad<br><br><li>¿Cuándo quieres realizar el trabajo? </li> En los próximos días<br><br><li>Horario de preferencia </li> Todo el día </ul><b>Preferencia para el servicio: </b> El mejor precio
 """
 }]
+
+DEF_NUM_PROMPTS = len(USER_PROMPTS)
 
 DEF_TEMPERATURE = 0
 DEF_TOP_P = 1
@@ -226,7 +229,7 @@ async def send_batch_requests(contexts, args):
     t2 = time.perf_counter()
     print(f"End send {num} requests, time: {(t2 - t1):.2f}\n")
 
-def plot_curves(file_path: str, bss:str, out_file_path: Optional[str]):
+def plot_bar(file_path: str, bss:str, out_file_path: Optional[str]):
     print(f"Plotting from {file_path}")
     if not os.path.isfile(file_path):
         print(f"Bad file: {file_path}")
@@ -234,7 +237,7 @@ def plot_curves(file_path: str, bss:str, out_file_path: Optional[str]):
     bss = bss.split(",")
     #bss = [int(i) for i in bss]
     print(f"plot bs: {bss}")
-    plot_data = {} ## "label" => [{"out_tokens":0, "gen_latency":0, "sec_per_token": 0}]
+    plot_data = {} ## "label" => [{"in_tokens":0, "ttft":0, "out_tokens":0, "gen_latency":0, "sec_per_token": 0}]
     with open(file_path, "r") as f:
         label = "None"
         line = f.readline()
@@ -245,7 +248,7 @@ def plot_curves(file_path: str, bss:str, out_file_path: Optional[str]):
                 if label != "None":
                     on = False
                     for bs in bss:
-                        if bs in label:
+                        if label.endswith("@"+bs):
                             on = True
                             break
                     if on:
@@ -265,54 +268,83 @@ def plot_curves(file_path: str, bss:str, out_file_path: Optional[str]):
                             data["out_tokens"] = int(kv[1].strip())
                         elif "sec-per-token" in kv[0]:
                             data["sec_per_token"] = float(kv[1].strip())
+                        elif "in-tokens" in kv[0]:
+                            data["in_tokens"] = int(kv[1].strip())
+                        elif "ttft" in kv[0]:
+                            data["ttft"] = float(kv[1].strip())
                     plot_data[label].append(data)
             line = f.readline()
     #print(f"==== plot data: {plot_data}")
     if len(plot_data.keys()) == 0:
         print("No data loaded from {file_path}")
         return
-    tpot = {} # {"label": [tpot]}
+    bar_data = {} # {"label": [bs, avg_in_tps, avg_out_tps]}
+    bss = []
+    for label in plot_data:
+        pos = label.find("@")
+        assert pos > 0
+        bs = int(label[pos+1:])
+        if bs not in bss:
+            bss.append(bs)
+        if label not in bar_data:
+            bar_data[label] = []
+        bar_data[label].append(bs)
+        in_tps=[]
+        out_tps=[]
+        for data in plot_data[label]:
+            in_tps.append(data["in_tokens"]/data["ttft"])
+            out_tps.append(data["out_tokens"]/data["gen_latency"])
+        bar_data[label].append(int(np.mean(in_tps)))
+        bar_data[label].append(int(np.mean(out_tps)))
+
     import matplotlib.pyplot as plt
-    for key in plot_data:
-        tpot[key] = []
-        x = []
-        y = []
-        for data in plot_data["key"]:
-            x.append(data["out_tokens"])
-            y.apend(data["gen_latency"])
-            topt[key].append(data["sec_per_token"])
-        plt.plot(x, y, label=key)
-    plt.title("JSON output latency (lower is better)")
-    plt.xlabel("out tokens")
-    plt.legend()
-    if out_file_path:
-        plt.savefig(out_file_path+".curve", dpi=300)
+    def _get_bar_data(bar_data, bs):
+        xlabels = []
+        ydata = [[], []]
+        for label in bar_data:
+            if bar_data[label][0] == bs:
+                xlabels.append(label)
+                ydata[0].append(bar_data[label][1])
+                ydata[1].append(bar_data[label][2])
+        return xlabels, ydata
+    def _do_plot_bar(ax, xlabels, ydata, bs):
+        x = np.arange(len(xlabels))
+        bottom = np.zeros(len(xlabels))
+        width = 0.8
+        for i, row in enumerate(ydata):
+            ax.bar(x, row, width, bottom=bottom, label="Input TPS" if i == 0 else "Ouput TPS")
+            bottom += row
+        ax.set_xticks(x)
+        ax.set_xticklabels(xlabels)
+        #ax.set_title(f"bs={bs}")
+        #ax.legend()
+
+    assert len(bss) > 0
+    if len(bss) == 1:
+        fig, ax = plt.subplots()
+        xlabels, ydata = _get_bar_data(bar_data, bss[0])
+        _do_plot_bar(ax, xlabels, ydata, bss[0])
     else:
-        plt.show()
-    avg_tps = {}
-    x = []
-    y = []
-    for key in tpot:
-        avg_tps[key] = int(1.0 / np.mean(tpot[key]))
-        x.append(key)
-        y.append(avg_tps[key])
-    print(f"tps data: {avg_tps}")
-    plt.bar(range(len(x)), y, tick_label=x)
-    plt.ylabel("tps")
+        fig, axes = plt.subplots(nrows=len(bss), ncols=1)
+        for i in range(len(bss)):
+            xlabels, ydata = _get_bar_data(bar_data, bss[i])
+            _do_plot_bar(axes[i], xlabels, ydata, bss[i])
+    plt.title("JSON Speedup(Higher is better)")
     if out_file_path:
-        plt.savefig(out_file_path+".bar", dpi=300)
+        plt.savefig(out_file_path, dpi=300)
     else:
         plt.show()
 
 def main(args: argparse.Namespace):
     if args.plot:
-        plot_curves(args.data_file, args.plot, args.plot_output)
+        plot_bar(args.data_file, args.plot, args.plot_output)
         return
     tokenizer = None
     if args.tokenizer:
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     prompts = []
-    for p in USER_PROMPTS:
+    preset_prompts = USER_PROMPTS[:DEF_NUM_PROMPTS]
+    for p in preset_prompts:
         prompts.append({
             "system": SYSTEM_PROMPT,
             "user": PROMPT_PREFIX.replace("{lang_code}", p["lang"]) + p["content"] + PROMPT_SUFFIX
