@@ -278,7 +278,7 @@ def do_plot(file_path: str, kind:str, bss:str, out_file_path: Optional[str]):
     if len(plot_data.keys()) == 0:
         print("No data loaded from {file_path}")
         return
-    bar_data = {} # {"label": [bs, avg_in_tps, avg_out_tps, avg_ttft]}
+    bar_data = {} # {"label": [bs, avg_in_tps, avg_out_tps, avg_ttft, avg_e2e]}
     curve_ttft = {} # {"label": [[in_tokens, ttft], ...]}
     bss = []
     for label in plot_data:
@@ -295,15 +295,18 @@ def do_plot(file_path: str, kind:str, bss:str, out_file_path: Optional[str]):
         in_tps=[]
         out_tps=[]
         ttft_raw = []
+        e2e_raw = []
         ttft = []
         for data in plot_data[label]:
             in_tps.append(data["in_tokens"]/data["ttft"])
             out_tps.append(data["out_tokens"]/data["gen_latency"])
             ttft_raw.append(data["ttft"])
             ttft.append([data["in_tokens"], data["ttft"]])
+            e2e_raw.append(data["ttft"] + data["gen_latency"])
         bar_data[label].append(int(np.mean(in_tps)))
         bar_data[label].append(int(np.mean(out_tps)))
         bar_data[label].append(np.mean(ttft_raw))
+        bar_data[label].append(np.mean(e2e_raw))
         ttft.sort(key=lambda x: x[0])
         num = 0
         in_tokens = 0
@@ -323,7 +326,8 @@ def do_plot(file_path: str, kind:str, bss:str, out_file_path: Optional[str]):
 
     import matplotlib.pyplot as plt
     if kind == "ttft-tps":
-        fig, axes = plt.subplots(nrows=2, ncols=1)
+        fig, axes = plt.subplots(nrows=3, ncols=1)
+        ## ttft
         for label in curve_ttft:
             x = [t[0] for t in curve_ttft[label]]
             y = [t[1] for t in curve_ttft[label]]
@@ -331,6 +335,7 @@ def do_plot(file_path: str, kind:str, bss:str, out_file_path: Optional[str]):
             axes[0].set_xticks(x)
             axes[0].legend()
             axes[0].set_title("Latency(Lower is better)")
+        ## ttft-tps
         twin = axes[1].twinx()
         width = 0.8
         num = 1
@@ -350,12 +355,33 @@ def do_plot(file_path: str, kind:str, bss:str, out_file_path: Optional[str]):
                     num += 1
                     ttft_y.append(bar_data[label][3])
             num += 1
-            axes[1].bar(x, y, width, label=str(bs))
+            bars = axes[1].bar(x, y, width, label=str(bs))
+            for j, bar in enumerate(bars):
+                axes[1].annotate(f"{y[j]}", xy=(bar.get_x() + 0.2*bar.get_width(), bar.get_height()), xytext=(0,5), textcoords="offset points")
             twin.plot(x, ttft_y, color="black")
         axes[1].set_xticks(x_tick_pos, x_tick_label, rotation=-30, ha='left', va='top')
-        axes[1].set_title("Throughtput vs Latency")
+        axes[1].set_title("Throughtput and Latency")
         axes[1].set_ylabel("TPS")
         twin.set_ylabel("TTFT")
+        ## e2e latency
+        num = 1
+        for i in range(len(bss)):
+            bs = bss[i]
+            x = []
+            y = []
+            for label in bar_data:
+                if bar_data[label][0] == bs:
+                    x.append(num)
+                    y.append(bar_data[label][4])
+                    num += 1
+            num += 1
+            bars = axes[2].bar(x, y, width, label=str(bs))
+            for j, bar in enumerate(bars):
+                axes[2].annotate(f"{y[j]:.2f}", xy=(bar.get_x()+0.2*bar.get_width(), bar.get_height()), xytext=(0,5), textcoords="offset points")
+        axes[2].set_xticks(x_tick_pos, x_tick_label, rotation=-30, ha='left', va='top')
+        axes[2].set_title("E2E latency")
+        axes[2].set_ylabel("Seconds")
+
     elif kind == "tps":
         def _get_bar_data(bar_data, bs):
             xlabels = []
