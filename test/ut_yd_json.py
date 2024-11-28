@@ -1,11 +1,15 @@
 #from openai import OpenAI
 import argparse
 import time
+import os
 import aiohttp
 import asyncio
 import json
 import random
 from collections import OrderedDict
+from typing import Dict, Optional
+from dataclasses import dataclass, field, asdict
+from transformers import AutoTokenizer
 
 SYSTEM_PROMPT= """
 Generate responses exclusively in valid JSON format with no additional text. Each response must be a fully structured JSON object without explanations, introductions, or comments. Ensure that the JSON is complete and valid, ready to be used directly in a JSON validator.
@@ -92,10 +96,18 @@ DEF_TOP_P = 1
 DEF_PRESENCE_PENALTY = 0
 DEF_FREQ_PENALTY = 0
 
+@dataclass
+class Context:
+    index: int = field(default=0)
+    request: Dict[str, str] = field(default=None)
+    input_tokens: int = field(default=0)
+    output_tokens: int = field(default=0)
+    output: str = field(default="")
+    e2e_latency: float = field(default=0)
+    ttft: Optional[float] = field(default=None)
+    gen_latency: Optional[float] = field(default=None)
+
 def get_chat_payload(req, args):
-    content = PROMPT_PREFIX.replace("{lang_code}", req["lang"]) + req["content"] + PROMPT_SUFFIX
-    enable_json_mode = not args.no_json
-    extra_body = None
     response_format = None
     obj = {
         "temperature": DEF_TEMPERATURE,
@@ -108,11 +120,11 @@ def get_chat_payload(req, args):
         "messages": [
         {
             "role": "system",
-            "content": SYSTEM_PROMPT,
+            "content": req["system"],
         },
         {
             "role": "user",
-            "content": content,
+            "content": req["user"],
         }],
         "max_tokens": args.max_tokens,
         "response_format": response_format
@@ -126,69 +138,12 @@ def get_chat_payload(req, args):
             "required": ["formatted_description"]
         }
     if args.stream:
-        obj["stream"] = args.stream,
+        obj["stream"] = args.stream
     return obj
 
-async def send_one_request_openai(req, args):
-    start_time = time.time()
-    content = PROMPT_PREFIX.replace("{lang_code}", req["lang"]) + req["content"] + PROMPT_SUFFIX
-    enable_json_mode = not args.no_json
-    extra_body = None
-    response_format = None
-    if not args.no_json:
-        extra_body={
-            #"guided_decoding_backend": "lm-format-enforcer",
-            #"guided_whitespace_pattern": r"[\n\t ]*",
-            #"response_format": {"type": "json_object"},
-            #"response_format": {"type": "json_schema"},
-            #"guided_json": {"type": "object"},
-            "guided_json": {
-                "type": "object",
-                "properties": {
-                    "formatted_description": {"title": "description", "type": "string"}
-                },
-                "required": ["formatted_description"]
-            },
-        }
-
-    chat_completion = client.chat.completions.create(
-        temperature=DEF_TEMPERATURE,
-        top_p=DEF_TOP_P,
-        presence_penalty=DEF_PRESENCE_PENALTY,
-        frequency_penalty=DEF_FREQ_PENALTY,
-        #repetition_penalty=1,
-        stop=["<|eot_id|>", "<start_header_id|>", "<|end_header_id|>"],
-        stream=args.stream,
-        model=args.model,
-        messages=[
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT,
-        },
-        {
-            "role": "user",
-            "content": content,
-        }],
-        max_tokens=args.max_tokens,
-        extra_body=extra_body,
-        response_format=response_format,
-    )
-    if args.stream:
-        for chunk in chat_completion:
-            print(chunk.choices[0].delta.content or "", end="")
-    else:
-        #print(chat_completion.usage)
-        print("==== response ====")
-        print(chat_completion.choices[0].message.content)
-    end_time = time.time()
-    print(f"\nTime taken: {end_time - start_time:.2f} seconds, {chat_completion.usage.completion_tokens} tokens")
-    print("----------------------------------------------")
-
-
-
-async def send_one_request(index, req, args):
+async def send_one_request(index, ctx, args):
     url = args.endpoint + "/chat/completions"
-    payload = get_chat_payload(req, args)
+    payload = get_chat_payload(ctx.request, args)
     #print(f"==== payload: {payload}")
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6 * 60 * 60)) as session:
         request_start_time = time.perf_counter()
@@ -199,6 +154,7 @@ async def send_one_request(index, req, args):
             else:
                 generated = ""
                 e2e_latency = 0
+                first_token_ts = 0
                 input_tokens = 0
                 output_tokens = 0
                 async for chunk_bytes in res.content:
@@ -215,6 +171,8 @@ async def send_one_request(index, req, args):
                         if chunk == "[DONE]":
                             e2e_latency = time.perf_counter() - request_start_time
                         else:
+                            if first_token_ts == 0:
+                                first_token_ts = time.perf_counter()
                             obj = json.loads(chunk)
                             #print(f"=== output json: {obj}")
                             content = None
@@ -228,6 +186,7 @@ async def send_one_request(index, req, args):
                                 elif "message" in choice0:
                                     if "content" in choice0["message"]:
                                         content = choice0["message"]["content"]
+                                output_tokens += 1
                             if "usage" in obj:
                                 input_tokens = obj["usage"]["prompt_tokens"]
                                 output_tokens = obj["usage"]["completion_tokens"]
@@ -238,40 +197,173 @@ async def send_one_request(index, req, args):
                     except Exception as err:
                         print(f"Failed to handle streaming chunk: {res.status}, error: {err}")
                 if e2e_latency == 0:
+                    ## non-stream
                     e2e_latency = time.perf_counter() - request_start_time
-                print(f"\n\nTestCase[{index}]\nE2E latency: {e2e_latency:.2f}, sec/token: {(e2e_latency/output_tokens):.3f}, Generated({input_tokens},{output_tokens}):\n{generated}")
+                    generate_latency = e2e_latency
+                    ttft = 0.0
+                else:
+                    ## stream
+                    assert first_token_ts > 0
+                    generate_latency = time.perf_counter() - first_token_ts
+                    ttft = first_token_ts - request_start_time
+                ctx.output = generated
+                ctx.e2e_latency = e2e_latency
+                ctx.output_tokens = output_tokens
+                if ctx.input_tokens == 0:
+                    ctx.input_tokens = input_tokens
+                ctx.ttft = ttft
+                ctx.gen_latency = generate_latency
+                print(f"\n\nTestCase[{index}]\nE2E latency: {e2e_latency:.2f}, TTFT: {ttft:.2f}, sec/token: {(generate_latency/output_tokens):.3f}, input:{ctx.input_tokens}({input_tokens}) output:{output_tokens}\n{generated}")
 
-async def send_batch_requests(reqs, args):
-    num = len(reqs)
+async def send_batch_requests(contexts, args):
+    num = len(contexts)
     t1 = time.perf_counter()
     print(f"Begin send {num} requests")
     tasks: List[asyncio.Task] = []
     for i in range(num):
-        tasks.append(asyncio.create_task(send_one_request(i, reqs[i], args)))
+        tasks.append(asyncio.create_task(send_one_request(i, contexts[i], args)))
     await asyncio.gather(*tasks)
     t2 = time.perf_counter()
     print(f"End send {num} requests, time: {(t2 - t1):.2f}\n")
 
+def plot_curves(file_path: str, bss:str, out_file_path: Optional[str]):
+    print(f"Plotting from {file_path}")
+    if not os.path.isfile(file_path):
+        print(f"Bad file: {file_path}")
+        return
+    bss = bss.split(",")
+    #bss = [int(i) for i in bss]
+    print(f"plot bs: {bss}")
+    plot_data = {} ## "label" => [{"out_tokens":0, "gen_latency":0, "sec_per_token": 0}]
+    with open(file_path, "r") as f:
+        label = "None"
+        line = f.readline()
+        while line:
+            line = line.strip()
+            if line.startswith("Result:"):
+                label = line[7:].strip()
+                if label != "None":
+                    on = False
+                    for bs in bss:
+                        if bs in label:
+                            on = True
+                            break
+                    if on:
+                        if label not in plot_data:
+                            plot_data[label] = []
+                    else:
+                        label = "None"
+            elif label != "None":
+                parts = line.split(",")
+                if len(parts) >=6:
+                    data = {}
+                    for part in parts:
+                        kv = part.split(":")
+                        if "gen-latency" in kv[0]:
+                            data["gen_latency"] = float(kv[1].strip())
+                        elif "out-tokens" in kv[0]:
+                            data["out_tokens"] = int(kv[1].strip())
+                        elif "sec-per-token" in kv[0]:
+                            data["sec_per_token"] = float(kv[1].strip())
+                    plot_data[label].append(data)
+            line = f.readline()
+    #print(f"==== plot data: {plot_data}")
+    if len(plot_data.keys()) == 0:
+        print("No data loaded from {file_path}")
+        return
+    tpot = {} # {"label": [tpot]}
+    import matplotlib.pyplot as plt
+    for key in plot_data:
+        tpot[key] = []
+        x = []
+        y = []
+        for data in plot_data["key"]:
+            x.append(data["out_tokens"])
+            y.apend(data["gen_latency"])
+            topt[key].append(data["sec_per_token"])
+        plt.plot(x, y, label=key)
+    plt.title("JSON output latency (lower is better)")
+    plt.xlabel("out tokens")
+    plt.legend()
+    if out_file_path:
+        plt.savefig(out_file_path+".curve", dpi=300)
+    else:
+        plt.show()
+    avg_tps = {}
+    x = []
+    y = []
+    for key in tpot:
+        avg_tps[key] = int(1.0 / np.mean(tpot[key]))
+        x.append(key)
+        y.append(avg_tps[key])
+    print(f"tps data: {avg_tps}")
+    plt.bar(range(len(x)), y, tick_label=x)
+    plt.ylabel("tps")
+    if out_file_path:
+        plt.savefig(out_file_path+".bar", dpi=300)
+    else:
+        plt.show()
+
 def main(args: argparse.Namespace):
-    num_prompts = len(USER_PROMPTS)
-    base_prompts = USER_PROMPTS * (args.parallel * args.num_tests // num_prompts + 1)
+    if args.plot:
+        plot_curves(args.data_file, args.plot, args.plot_output)
+        return
+    tokenizer = None
+    if args.tokenizer:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    prompts = []
+    for p in USER_PROMPTS:
+        prompts.append({
+            "system": SYSTEM_PROMPT,
+            "user": PROMPT_PREFIX.replace("{lang_code}", p["lang"]) + p["content"] + PROMPT_SUFFIX
+        })
+    num_prompts = len(prompts)
+    base_prompts = prompts * (args.parallel * args.num_tests // num_prompts + 1)
+    total_ctx = []
+    for i in range(len(base_prompts)):
+        ctx = Context(index=i)
+        ctx.request = base_prompts[i]
+        if tokenizer:
+            ctx.input_tokens = len(tokenizer.encode(ctx.request["system"]+ctx.request["user"])) + 33
+        total_ctx.append(ctx)
+
     for i in range(args.num_tests):
         print(f"===== Testing iteration: {i}")
         offset = random.randint(0, len(base_prompts) - args.parallel)
-        reqs = base_prompts[offset:offset+args.parallel]
-        asyncio.run(send_batch_requests(reqs, args))
+        batch_ctx = total_ctx[offset:offset+args.parallel]
+        #for ctx in batch_ctx:
+        #    print(f"===== ctx: {ctx}")
+        asyncio.run(send_batch_requests(batch_ctx, args))
+
+    label = "NO-JSON" if args.no_json else "JSON"
+    label += f"@{args.parallel}"
+    dump = f"\n\nResult: {label}"
+    for ctx in total_ctx:
+        if ctx.e2e_latency > 1e-5:
+            out_tokens = len(tokenizer.encode(ctx.output)) if tokenizer else 0
+            dump += f"\n[{ctx.index}] e2e: {ctx.e2e_latency:.3f}, ttft: {ctx.ttft:.3f}, gen-latency: {ctx.gen_latency:.3f}, in-tokens: {ctx.input_tokens}, out-tokens: {ctx.output_tokens}, sec-per-token: {(ctx.gen_latency/ctx.output_tokens):.3f}"
+    dump += "\n"
+    print(dump)
+    if args.data_file:
+        with open(args.data_file, "a") as f:
+            f.write(dump)
+            print(f"Saved into {args.data_file}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="JSON generation evaluation"
     )
     parser.add_argument("--endpoint", type=str, help="The LLM serving endpoint, for example: http://localhost:18011/v1")
+    parser.add_argument("--tokenizer", type=str, default=None, help="The tokenizer path")
     parser.add_argument("--model", type=str, help="The model name")
     parser.add_argument("--num-tests", type=int, default=1, help="The number of tests, default is 1")
     parser.add_argument("--parallel", type=int, default=1, help="The number of requests at the same time, default is 1")
     parser.add_argument("--max-tokens", type=int, default=1024, help="The max tokens of generated result, default is 1024")
     parser.add_argument("--no-json", action="store_true", help="Disable JSON output if set")
     parser.add_argument("--stream", action="store_true", help="Output with streaming mode")
+    parser.add_argument("--data-file", type=str, help="Save or read the test result from file")
+    parser.add_argument("--plot", type=str, help="Plot the results for specific bs, the bs values are sperated by comma")
+    parser.add_argument("--plot-output", type=str, help="The file to save plotting graphic")
 
     args = parser.parse_args()
     main(args)
