@@ -229,7 +229,7 @@ async def send_batch_requests(contexts, args):
     t2 = time.perf_counter()
     print(f"End send {num} requests, time: {(t2 - t1):.2f}\n")
 
-def plot_bar(file_path: str, bss:str, out_file_path: Optional[str]):
+def do_plot(file_path: str, kind:str, bss:str, out_file_path: Optional[str]):
     print(f"Plotting from {file_path}")
     if not os.path.isfile(file_path):
         print(f"Bad file: {file_path}")
@@ -278,7 +278,8 @@ def plot_bar(file_path: str, bss:str, out_file_path: Optional[str]):
     if len(plot_data.keys()) == 0:
         print("No data loaded from {file_path}")
         return
-    bar_data = {} # {"label": [bs, avg_in_tps, avg_out_tps]}
+    bar_data = {} # {"label": [bs, avg_in_tps, avg_out_tps, avg_ttft]}
+    curve_ttft = {} # {"label": [[in_tokens, ttft], ...]}
     bss = []
     for label in plot_data:
         pos = label.find("@")
@@ -289,47 +290,107 @@ def plot_bar(file_path: str, bss:str, out_file_path: Optional[str]):
         if label not in bar_data:
             bar_data[label] = []
         bar_data[label].append(bs)
+        if label not in curve_ttft:
+            curve_ttft[label] = []
         in_tps=[]
         out_tps=[]
+        ttft_raw = []
+        ttft = []
         for data in plot_data[label]:
             in_tps.append(data["in_tokens"]/data["ttft"])
             out_tps.append(data["out_tokens"]/data["gen_latency"])
+            ttft_raw.append(data["ttft"])
+            ttft.append([data["in_tokens"], data["ttft"]])
         bar_data[label].append(int(np.mean(in_tps)))
         bar_data[label].append(int(np.mean(out_tps)))
+        bar_data[label].append(np.mean(ttft_raw))
+        ttft.sort(key=lambda x: x[0])
+        num = 0
+        in_tokens = 0
+        ttft_val = 0
+        for i in range(len(ttft)):
+            if ttft[i][0] == in_tokens:
+                ttft_val += ttft[i][1]
+                num += 1
+            else:
+                if in_tokens != 0:
+                    curve_ttft[label].append([in_tokens, ttft_val/num])
+                in_tokens = ttft[i][0]
+                ttft_val = ttft[i][1]
+                num = 1
+        if in_tokens != 0:
+            curve_ttft[label].append([in_tokens, ttft_val/num])
 
     import matplotlib.pyplot as plt
-    def _get_bar_data(bar_data, bs):
-        xlabels = []
-        ydata = [[], []]
-        for label in bar_data:
-            if bar_data[label][0] == bs:
-                xlabels.append(label)
-                ydata[0].append(bar_data[label][1])
-                ydata[1].append(bar_data[label][2])
-        return xlabels, ydata
-    def _do_plot_bar(ax, xlabels, ydata, bs):
-        x = np.arange(len(xlabels))
-        bottom = np.zeros(len(xlabels))
+    if kind == "ttft-tps":
+        fig, axes = plt.subplots(nrows=2, ncols=1)
+        for label in curve_ttft:
+            x = [t[0] for t in curve_ttft[label]]
+            y = [t[1] for t in curve_ttft[label]]
+            axes[0].plot(x, y, label=label)
+            axes[0].set_xticks(x)
+            axes[0].legend()
+            axes[0].set_title("Latency(Lower is better)")
+        twin = axes[1].twinx()
         width = 0.8
-        for i, row in enumerate(ydata):
-            ax.bar(x, row, width, bottom=bottom, label="Input TPS" if i == 0 else "Ouput TPS")
-            bottom += row
-        ax.set_xticks(x)
-        ax.set_xticklabels(xlabels)
-        #ax.set_title(f"bs={bs}")
-        #ax.legend()
-
-    assert len(bss) > 0
-    if len(bss) == 1:
-        fig, ax = plt.subplots()
-        xlabels, ydata = _get_bar_data(bar_data, bss[0])
-        _do_plot_bar(ax, xlabels, ydata, bss[0])
-    else:
-        fig, axes = plt.subplots(nrows=len(bss), ncols=1)
+        num = 1
+        x_tick_pos = []
+        x_tick_label = []
         for i in range(len(bss)):
-            xlabels, ydata = _get_bar_data(bar_data, bss[i])
-            _do_plot_bar(axes[i], xlabels, ydata, bss[i])
-    plt.title("JSON Speedup(Higher is better)")
+            bs = bss[i]
+            x = []
+            y = []
+            ttft_y = []
+            for label in bar_data:
+                if bar_data[label][0] == bs:
+                    x_tick_pos.append(num)
+                    x_tick_label.append(label)
+                    x.append(num)
+                    y.append(bar_data[label][2])
+                    num += 1
+                    ttft_y.append(bar_data[label][3])
+            num += 1
+            axes[1].bar(x, y, width, label=str(bs))
+            twin.plot(x, ttft_y, color="black")
+        axes[1].set_xticks(x_tick_pos, x_tick_label, rotation=-30, ha='left', va='top')
+        axes[1].set_title("Throughtput vs Latency")
+        axes[1].set_ylabel("TPS")
+        twin.set_ylabel("TTFT")
+    elif kind == "tps":
+        def _get_bar_data(bar_data, bs):
+            xlabels = []
+            ydata = [[], []]
+            for label in bar_data:
+                if bar_data[label][0] == bs:
+                    xlabels.append(label)
+                    ydata[0].append(bar_data[label][1])
+                    ydata[1].append(bar_data[label][2])
+            return xlabels, ydata
+        def _do_plot_bar(ax, xlabels, ydata, bs):
+            x = np.arange(len(xlabels))
+            bottom = np.zeros(len(xlabels))
+            width = 0.8
+            for i, row in enumerate(ydata):
+                ax.bar(x, row, width, bottom=bottom, label="Input TPS" if i == 0 else "Ouput TPS")
+                bottom += row
+            ax.set_xticks(x)
+            ax.set_xticklabels(xlabels)
+            #ax.set_title(f"bs={bs}")
+            #ax.legend()
+
+        assert len(bss) > 0
+        if len(bss) == 1:
+            fig, ax = plt.subplots()
+            xlabels, ydata = _get_bar_data(bar_data, bss[0])
+            _do_plot_bar(ax, xlabels, ydata, bss[0])
+        else:
+            fig, axes = plt.subplots(nrows=len(bss), ncols=1)
+            for i in range(len(bss)):
+                xlabels, ydata = _get_bar_data(bar_data, bss[i])
+                _do_plot_bar(axes[i], xlabels, ydata, bss[i])
+        plt.title("JSON Speedup(Higher is better)")
+    else:
+        raise ValueError(f"Unknown plot kind: {kind}")
     if out_file_path:
         plt.savefig(out_file_path, dpi=300)
     else:
@@ -337,7 +398,7 @@ def plot_bar(file_path: str, bss:str, out_file_path: Optional[str]):
 
 def main(args: argparse.Namespace):
     if args.plot:
-        plot_bar(args.data_file, args.plot, args.plot_output)
+        do_plot(args.data_file, args.plot, args.plot_bs, args.plot_output)
         return
     tokenizer = None
     if args.tokenizer:
@@ -394,7 +455,8 @@ if __name__ == "__main__":
     parser.add_argument("--no-json", action="store_true", help="Disable JSON output if set")
     parser.add_argument("--stream", action="store_true", help="Output with streaming mode")
     parser.add_argument("--data-file", type=str, help="Save or read the test result from file")
-    parser.add_argument("--plot", type=str, help="Plot the results for specific bs, the bs values are sperated by comma")
+    parser.add_argument("--plot", type=str, help="Plot the result, its value can be: ttft-tps, tps")
+    parser.add_argument("--plot-bs", type=str, default="1,2,4,6,8,10", help="Plot the results for specific bs, the bs values are sperated by comma, default is: 1,2,4,6,8,10")
     parser.add_argument("--plot-output", type=str, help="The file to save plotting graphic")
 
     args = parser.parse_args()
