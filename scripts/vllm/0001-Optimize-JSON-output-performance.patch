@@ -1,0 +1,201 @@
+From 37342f2a4604bae5c24b68ca80ab977c341df5de Mon Sep 17 00:00:00 2001
+From: linke <linke@pplabs.org>
+Date: Fri, 29 Nov 2024 15:06:23 +0800
+Subject: [PATCH] Optimize JSON output performance
+
+Signed-off-by: linke <linke@pplabs.org>
+---
+ .../guided_decoding/outlines_decoding.py      |   8 +-
+ .../outlines_logits_processors.py             | 120 +++++++++++++++++-
+ 2 files changed, 120 insertions(+), 8 deletions(-)
+
+diff --git a/vllm/model_executor/guided_decoding/outlines_decoding.py b/vllm/model_executor/guided_decoding/outlines_decoding.py
+index 8a7ff38b..a82a5c35 100644
+--- a/vllm/model_executor/guided_decoding/outlines_decoding.py
++++ b/vllm/model_executor/guided_decoding/outlines_decoding.py
+@@ -8,10 +8,9 @@ from typing import Tuple, Union
+ from transformers import PreTrainedTokenizerBase
+ 
+ from vllm.model_executor.guided_decoding.outlines_logits_processors import (
+-    CFGLogitsProcessor, JSONLogitsProcessor, RegexLogitsProcessor)
++    CFGLogitsProcessor, JSONLogitsProcessor, RegexLogitsProcessor, OutlinesJSONLogitsProcessor)
+ from vllm.sampling_params import GuidedDecodingParams
+ 
+-
+ class GuidedDecodingMode(Enum):
+     JSON = "json"
+     REGEX = "regex"
+@@ -66,14 +65,13 @@ async def get_outlines_guided_decoding_logits_processor(
+ 
+     if global_thread_pool is None:
+         global_thread_pool = concurrent.futures.ThreadPoolExecutor(
+-            max_workers=2)
++            max_workers=6)
+     loop = asyncio.get_running_loop()
+ 
+     return await loop.run_in_executor(global_thread_pool,
+                                       _get_logits_processor, guide, tokenizer,
+                                       mode, guided_params.whitespace_pattern)
+ 
+-
+ def get_local_outlines_guided_decoding_logits_processor(
+     guided_params: GuidedDecodingParams, tokenizer: PreTrainedTokenizerBase
+ ) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor,
+@@ -124,7 +122,7 @@ def _get_logits_processor(
+     whitespace_pattern: Union[str, None]
+ ) -> Union[JSONLogitsProcessor, RegexLogitsProcessor, CFGLogitsProcessor]:
+     if mode == GuidedDecodingMode.JSON:
+-        return JSONLogitsProcessor(guide, tokenizer, whitespace_pattern)
++        return OutlinesJSONLogitsProcessor(guide, tokenizer, whitespace_pattern)
+     elif mode == GuidedDecodingMode.REGEX or mode == GuidedDecodingMode.CHOICE:
+         return RegexLogitsProcessor(guide, tokenizer)
+     elif mode == GuidedDecodingMode.GRAMMAR:
+diff --git a/vllm/model_executor/guided_decoding/outlines_logits_processors.py b/vllm/model_executor/guided_decoding/outlines_logits_processors.py
+index e1309c31..74e5e17b 100644
+--- a/vllm/model_executor/guided_decoding/outlines_logits_processors.py
++++ b/vllm/model_executor/guided_decoding/outlines_logits_processors.py
+@@ -15,9 +15,9 @@
+ # limitations under the License.
+ import copy
+ import json
+-from collections import defaultdict
++from collections import defaultdict, OrderedDict
+ from functools import lru_cache
+-from typing import Callable, DefaultDict, Dict, List, Union
++from typing import Callable, DefaultDict, Dict, List, Union, Type, TYPE_CHECKING
+ 
+ import numpy as np
+ import torch
+@@ -25,10 +25,14 @@ from lark import Lark
+ from outlines import grammars
+ from outlines.caching import cache
+ from outlines.fsm.guide import CFGGuide, Generate, Guide, RegexGuide, Write
+-from outlines.fsm.json_schema import build_regex_from_schema
++from outlines.fsm.json_schema import build_regex_from_schema, convert_json_schema_to_str
+ from pydantic import BaseModel
+ from transformers import PreTrainedTokenizerBase
+ 
++from numpy.typing import NDArray
++if TYPE_CHECKING:
++    import mlx.core as mx
++Array = Union[NDArray, torch.Tensor, List, "mx.array"]
+ 
+ class BaseLogitsProcessor:
+ 
+@@ -220,3 +224,113 @@ def _adapt_tokenizer(tokenizer: PreTrainedTokenizerBase):
+     setattr(tokenizer, "_outlines_adapted", True)  # noqa: B010
+ 
+     return tokenizer
++
++
++## map: regex_string => RegexGuide
++global_guide_map = OrderedDict()
++
++class OutlinesJSONLogitsProcessor:
++    @classmethod
++    def _get_guide(cls, regex_string: str, tokenizer: PreTrainedTokenizerBase) -> Guide:
++        global global_guide_map
++        if regex_string not in global_guide_map:
++            if len(global_guide_map) > 100:
++                global_guide_map.popitem(last=False)
++            tokenizer = _adapt_tokenizer(tokenizer)
++            global_guide_map[regex_string] = RegexGuide.from_regex(regex_string, tokenizer)
++        global_guide_map.move_to_end(regex_string)
++        return global_guide_map[regex_string]
++
++    def __init__(self, schema: str, tokenizer: PreTrainedTokenizerBase, whitespace_pattern: Union[str, None],):
++        regex_string = build_regex_from_schema(schema, whitespace_pattern)
++        self.guide = OutlinesJSONLogitsProcessor._get_guide(regex_string, tokenizer)
++        self._guide_states = {hash(tuple([])): self.guide.initial_state}
++        self._seq_start_idx = None
++
++    def process_logits(self, input_ids: torch.LongTensor, logits: torch.FloatTensor) -> torch.Tensor:
++        if self._seq_start_idx is None:
++            self._seq_start_idx = len(input_ids[0])
++
++        sequence_states: List[int] = []  # vector of states corresponding to `input_ids`
++
++        for seq_ids in input_ids:
++            gen_ids = seq_ids[self._seq_start_idx :]
++            curr_state_key = hash(tuple(gen_ids.tolist()))
++
++            if curr_state_key not in self._guide_states:
++                prev_state = self._guide_states[hash(tuple(gen_ids[:-1].tolist()))]
++                curr_state = self.guide.get_next_state(prev_state, gen_ids[-1].item())
++                self._guide_states[curr_state_key] = curr_state
++
++            sequence_states.append(self._guide_states[curr_state_key])
++
++
++        allowed_tokens_batch = []
++        batch_indices = []
++        for i, guide_state in enumerate(sequence_states):
++            #allowed_tokens = self.guide.get_next_instruction(guide_state).tokens.to(mask.device, non_blocking=True)
++            allowed_tokens = self.guide.get_next_instruction(guide_state).tokens.to(logits.device, non_blocking=True)
++            allowed_tokens_batch.append(allowed_tokens)
++            batch_indices.append(
++                torch.full_like(allowed_tokens, i)
++            )  # Store batch index for each allowed token
++
++        allowed_tokens_concat = torch.cat(allowed_tokens_batch)
++        batch_indices_concat = torch.cat(batch_indices)
++        if True:
++            ## async
++            bs = len(sequence_states)
++            mask = torch.ones_like(logits, dtype=torch.bool, device=logits.device)
++            mask_indices = torch.zeros_like(logits, dtype=torch.bool, device=logits.device)
++            mask_indices.scatter_(1, allowed_tokens_concat.unsqueeze(0).expand(bs, -1), True)
++            mask_indices = torch.where(mask_indices, True, False)
++            mask.masked_fill_(mask_indices, False)
++            logits.masked_fill_(mask, float("-inf"))
++        else:
++            ## outlines 0.1.3
++            mask = torch.ones_like(logits, dtype=torch.bool)
++            mask[batch_indices_concat, allowed_tokens_concat] = False
++            logits.masked_fill_(mask, float("-inf"))
++        return logits
++
++    @torch.no_grad()
++    def __call__(self, input_ids: Array, logits: Array,) -> Array:
++        torch_logits = self._to_torch(logits)
++        input_ids = self._to_torch(input_ids)
++        assert torch_logits.shape[:-1] == input_ids.shape[:-1]
++        if len(torch_logits.shape) == 2:
++            processed_logits = self.process_logits(input_ids, torch_logits)
++        elif len(torch_logits.shape) == 1:
++            processed_logits = self.process_logits(input_ids.unsqueeze(0), torch_logits.unsqueeze(0)).squeeze(0)
++        return self._from_torch(processed_logits, type(logits))
++
++    @staticmethod
++    def _to_torch(tensor_like: Array) -> torch.Tensor:
++        if isinstance(tensor_like, torch.Tensor):
++            return tensor_like
++        elif isinstance(tensor_like, np.ndarray):
++            return torch.from_numpy(tensor_like)
++        elif isinstance(tensor_like, (list, tuple)):
++            return torch.tensor(tensor_like)
++        elif is_mlx_array_type(type(tensor_like)):
++            return torch.from_dlpack(tensor_like)
++        else:
++            raise TypeError("LogitsProcessor must be called with either np.NDArray, torch.Tensor, list, or mlx.core.array typed logits. "
++                f"Logits type: `{type(tensor_like)}`"
++            )
++
++    @staticmethod
++    def _from_torch(tensor: torch.Tensor, target_type: Type) -> Array:
++        if target_type == torch.Tensor:
++            return tensor
++        elif target_type == np.ndarray:
++            return tensor.detach().numpy()
++        elif target_type == list:
++            return tensor.detach().tolist()
++        elif target_type == tuple:
++            return tuple(tensor.detach().tolist())
++        elif is_mlx_array_type(target_type):
++            import mlx.core as mx
++            return mx.array(tensor.float().numpy())
++        else:
++            raise TypeError(f"Failed to convert torch tensors to target_type `{target_type}`")
+-- 
+2.34.1
+
