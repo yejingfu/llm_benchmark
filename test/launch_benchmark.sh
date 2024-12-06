@@ -144,7 +144,7 @@ function run() {
     if [ x"$BM_DATASET_PATH" = x"" ]; then
         LOG ERR "Please set --dataset"
     fi
-    local args="--endpoint $BM_ENDPOINT --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH"
+    local args="--endpoint $BM_ENDPOINT --tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --model $BM_SERVED_NAME"
     if [ x"$BM_API_KEY" != x"" ]; then
         args="$args --api-key $BM_API_KEY"
     fi
