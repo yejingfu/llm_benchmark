@@ -104,6 +104,10 @@ function guess_served_name() {
     fi
     if [[ "$name" == *llama-3.1* ]]; then
         ret="llama31-$sufix"
+    elif [[ "$name" == *llama-3.2* ]]; then
+        ret="llama32-$sufix"
+    elif [[ "$name" == *llama-3.3* ]]; then
+        ret="llama33-$sufix"
     elif [[ "$name" == *llama-3* ]]; then
         ret="llama3-$sufix"
     elif [[ "$name" == *llama* ]]; then
