@@ -121,7 +121,7 @@ def main(args: argparse.Namespace):
     output += f"ttft(avg, P50, P90, P99): {ttft_avg:.2f}, {ttft_p[0]:.2f}, {ttft_p[1]:.2f}, {ttft_p[2]:.2f}\n"
     output += f"tpot(avg, P50, P90, P99): {tpot_avg:.2f}, {tpot_p[0]:.3f}, {tpot_p[1]:.3f}, {tpot_p[2]:.3f}\n"
     output += f"tps(avg, P50, P90, P99): {tps_avg:.2f}, {tps_p[0]:.1f}, {tps_p[1]:.1f}, {tps_p[2]:.1f}\n"
-    output += f"throughput: {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}\n"
+    output += f"throughput: {metrics.input_tokens/e2e_duration:.2f}, {metrics.output_tokens/e2e_duration:.2f}, {(metrics.input_tokens+metrics.output_tokens)/e2e_duration:.2f}\n"
     output += f"rps: {len(contexts)/e2e_duration:.3f}\n"
     output += f"errors: {len(metrics.errors)}\n"
     if args.record_raw_metrics and args.log_file:
