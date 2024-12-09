@@ -13,6 +13,7 @@ BM_TP=1
 BM_MAX_CTX_LEN="32768"
 BM_LISTEN_PORT="18011"
 BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
+BM_DEF_SERVER_EXTA_ARGS_KVCACHE="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests"
 
 if [[ x"$HF_ENDPOINT" = x"" ]]; then
     HF_ENDPOINT="https://huggingface.co"
@@ -81,6 +82,9 @@ function run() {
                 LOG INFO "Failed to pull docker image: $BM_IMAGE"
             fi
         fi
+        if [[ "$BM_IMAGE" == *_kvcache* ]]; then
+            BM_DEF_SERVER_EXTA_ARGS=$BM_DEF_SERVER_EXTA_ARGS_KVCACHE
+        fi
         if [ ! -d "$BM_MODEL_DIR" ]; then
             if [ x"$BM_HF_MODEL" = x"" ]; then
                 LOG ERR "The local model folder does not exist: $BM_MODEL_DIR , and the --model-hf-name is not set"
@@ -97,15 +101,24 @@ function run() {
             git lfs pull
             popd
         fi
+        if [[ "$BM_MODEL_DIR" == *-888* ]]; then
+            BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --kv_cache_dtype fp8"
+        fi
         num_gpus=$(count_numbers $BM_GPU_IDS)
         docker_name="benchmark_$RANDOM"
         docker_args="-d --gpus all --privileged --ipc=host --net=host -v $BM_MODEL_DIR:/this_model -e CUDA_VISIBLE_DEVICES=$BM_GPU_IDS"
+        if [[ "$BM_IMAGE" == *_kvcache* ]]; then
+            docker_args="$docker_args -e FULL_KV_LAYERS=6 -e SLIDING_WINDOW_WIDTH=1280"
+        fi
         server_args="--tensor-parallel-size $BM_TP --model /this_model"
         if [ x"$BM_SERVED_NAME" != x"" ]; then
             server_args="$server_args --served-model-name $BM_SERVED_NAME"
         fi
         server_args="$server_args --port $BM_LISTEN_PORT $BM_DEF_SERVER_EXTA_ARGS --max-model-len $BM_MAX_CTX_LEN"
         LOG INFO "docker run $docker_args --name $docker_name $BM_IMAGE $server_args"
+        if [ x"$BM_LOG_FILE" != x"" ]; then
+            echo "docker run $docker_args --name $docker_name $BM_IMAGE $server_args">>$BM_LOG_FILE
+        fi
         docker run $docker_args --name $docker_name $BM_IMAGE $server_args
         try=0
         while [ $try -lt 30 ]; do

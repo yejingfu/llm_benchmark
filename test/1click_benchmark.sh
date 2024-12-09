@@ -36,7 +36,7 @@ function usage() {
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
-    LOG INFO "  --test-strength(optional) The test strength level, can be: low, middle, high, very-high, default is high"
+    LOG INFO "  --test-strength(optional) The test strength level, can be: low, middle, high, very-high, super-high, default is high"
     LOG INFO "  --out-dir(optional) The output folder to save the test results, default is out"
     LOG INFO "  --setup(optional) Setup the testing envrionment, like install docker and git-lfs"
     LOG INFO "  --server-only(optional) Run vLLM engine directly"
@@ -200,6 +200,8 @@ function run_benchmark() {
         elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
             client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
         elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
+            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10,12,15"
+        elif [[ x"$BM_TEST_STRENGTH" = x"very-high" ]];then
             client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
         else
             client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
