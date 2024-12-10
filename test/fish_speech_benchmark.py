@@ -9,6 +9,7 @@ import asyncio
 import ormsgpack
 import pyaudio
 import requests
+import numpy as np
 from tabulate import tabulate
 from io import BytesIO
 from pydub import AudioSegment
@@ -163,12 +164,14 @@ async def send_batch_requests(ctxs, args):
     await asyncio.gather(*tasks)
     t2 = time.perf_counter()
     print(f"End send {num} requests, time: {(t2 - t1):.2f}\n")
-    s = [ctxs[0].index, ctxs[-1].index, 0, 0, 0, 0, 0]
+    ## start_index, stop_index, text_len, e2e_latency, duration, size, time, [e2e_latency]
+    s = [ctxs[0].index, ctxs[-1].index, 0, 0, 0, 0, 0, []]
     for i in range(num):
         s[2] += len(ctxs[i].text)
         s[3] += ctxs[i].e2e
         s[4] += ctxs[i].audio_duration
         s[5] += ctxs[i].audio_size
+        s[7].append(ctxs[i].e2e)
     s[2] /= num
     s[3] /= num
     s[4] /= num
@@ -194,6 +197,7 @@ def main(args: argparse.Namespace):
     total_seconds = 0
     column = ["index", "input-chars", "e2e-latency(sec)", "audio-duration(sec)", "audio-size(KB)"]
     data = []
+    e2e_raw = []
     sum_value = [0,0,0,0]
     num = 0
     i = 0
@@ -209,9 +213,14 @@ def main(args: argparse.Namespace):
         sum_value[2] += ret[4]
         sum_value[3] += ret[5]
         total_seconds += ret[6]
+        e2e_raw.extend(ret[7])
         num += 1
     data.insert(0, ["avg", f"{int(sum_value[0]/num)}", f"{(sum_value[1]/num):.2f}", f"{(sum_value[2]/num):.2f}", f"{(sum_value[3]/num/1024):.1f}"])
-    log = f"Total requests: {total_reqs}, RPS: {(total_reqs/total_seconds):.2f}, Parallel: {args.parallel}\n"
+    percentile = [50, 90, 99]
+    e2e_p = np.percentile(e2e_raw, percentile)
+    e2e_avg = np.mean(e2e_raw)
+    log = f"Total requests: {total_reqs}, Parallel: {args.parallel}\n"
+    log += f"RPS: {(total_reqs/total_seconds):.2f}, E2E latency: {e2e_avg:.2f},{e2e_p[0]:.2f},{e2e_p[1]:.2f},{e2e_p[2]:.2f}\n"
     log += tabulate(data, headers=column, tablefmt="grid")
     log += "\n\n"
     print(log)
@@ -225,7 +234,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark fish speech throughput.")
     parser.add_argument("--endpoint", type=str, default="http://127.0.0.1:8080/v1/tts", help="The fish-speech serving endpoint, default is: http://127.0.0.1:8080/v1/tts")
     parser.add_argument("--num-char", type=int, default=100, help="Number of characters for every request.")
-    parser.add_argument("--num-requests", type=int, default=1000, help="Number of prompts for benckmark.")
+    parser.add_argument("--num-requests", type=int, default=100, help="Number of prompts for benckmark.")
     parser.add_argument("--parallel", type=int, default=10)
     parser.add_argument("--streaming", type=bool, default=False, help="Enable streaming response")
     parser.add_argument("--out-dir", type=str, help="The output folder to save the generated audio files(mp3)")
