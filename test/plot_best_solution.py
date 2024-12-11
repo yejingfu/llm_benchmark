@@ -138,7 +138,8 @@ def filter_metrics(metrics, filters: str, input_len: int):
                 continue
         keep = False
         for part in parts:
-            part = "h2o" if part == "h20" else part
+            if "h2o" in m.name and part == "h20":
+                part = "h2o"
             keep = keep or part in m.name
             if keep:
                 break
