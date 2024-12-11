@@ -96,68 +96,46 @@ async def send_one_request(ctx, args):
         "seed": None,
     }
 
-    pydantic_data = ServeTTSRequest(**payload)
-    st_start = time.perf_counter()
-    response = requests.post(
-        args.endpoint,
-        data=ormsgpack.packb(pydantic_data, option=ormsgpack.OPT_SERIALIZE_PYDANTIC),
-        stream=args.streaming,
-        headers={
-            "authorization": "Bearer YOUR_API_KEY",
-            "content-type": "application/msgpack",
-        },
-    )
-    if response.status_code == 200:
-        if args.streaming:
-            p = pyaudio.PyAudio()
-            audio_format = pyaudio.paInt16  # Assuming 16-bit PCM format
-            stream = p.open(format=audio_format, channels=DEF_AUDIO_CHANNELS, rate=DEF_AUDIO_RATE, output=True)
-            wf = wave.open(f"{args.out_dir}/generated_{ctx.index}.wav", "wb")
-            wf.setnchannels(args.channels)
-            wf.setsampwidth(p.get_sample_size(audio_format))
-            wf.setframerate(args.rate)
-            stream_stopped_flag = False
-            try:
-                for chunk in response.iter_content(chunk_size=1024):
-                    if chunk:
-                        stream.write(chunk)
-                        wf.writeframesraw(chunk)
-                    else:
-                        if not stream_stopped_flag:
-                            stream.stop_stream()
-                            stream_stopped_flag = True
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6 * 60 * 60)) as session:
+        pydantic_data = ServeTTSRequest(**payload)
+        st_start = time.perf_counter()
+        async with session.post(
+            args.endpoint,
+            data=ormsgpack.packb(pydantic_data, option=ormsgpack.OPT_SERIALIZE_PYDANTIC),
+            #stream=args.streaming,
+            headers={
+                "authorization": "Bearer YOUR_API_KEY",
+                "content-type": "application/msgpack",
+            },
+        ) as response:
+            if response.status == 200:
+                #st_end = time.perf_counter()
+                audio_content = await response.read()
                 st_end = time.perf_counter()
-            finally:
-                stream.close()
-                p.terminate()
-                wf.close()
-        else:
-            st_end = time.perf_counter()
-            audio_content = response.content
-            if args.out_dir:
-                audio_path = f"{args.out_dir}/generated_{ctx.index}.mp3"
-                with open(audio_path, "wb") as audio_file:
-                    audio_file.write(audio_content)
-                print(f"Audio has been saved to '{audio_path}'.")
-            #if args.play:
-            #    audio = AudioSegment.from_file(audio_path, format="mp3")
-            #    play(audio)
-            audio = AudioSegment.from_file(BytesIO(response.content), format="mp3")
-            ctx.audio_duration = audio.duration_seconds
-            ctx.audio_size = len(audio.raw_data)
-            ctx.audio_channels = audio.channels
-            ctx.audio_rate = audio.frame_rate
-        ctx.e2e = st_end - st_start
-    else:
-        print(f"Request failed with status code {response.status_code}")
-        print(response.json())
+                if args.out_dir:
+                    audio_path = f"{args.out_dir}/generated_{ctx.index}.mp3"
+                    with open(audio_path, "wb") as audio_file:
+                        audio_file.write(audio_content)
+                    print(f"Audio has been saved to '{audio_path}'.")
+                #if args.play:
+                #    audio = AudioSegment.from_file(audio_path, format="mp3")
+                #    play(audio)
+                audio = AudioSegment.from_file(BytesIO(audio_content), format="mp3")
+                ctx.audio_duration = audio.duration_seconds
+                ctx.audio_size = len(audio.raw_data)
+                ctx.audio_channels = audio.channels
+                ctx.audio_rate = audio.frame_rate
+                ctx.e2e = st_end - st_start
+            else:
+                print(f"Request failed with status code {response.status_code}")
+                print(response.json())
 
 
 async def send_batch_requests(ctxs, args):
     num = len(ctxs)
-    t1 = time.perf_counter()
     print(f"Begin send {num} requests in parallel")
     tasks: List[asyncio.Task] = []
+    t1 = time.perf_counter()
     for i in range(num):
         print(f"Send[{ctxs[i].index}]: {ctxs[i].text}({len(ctxs[i].text)})")
         tasks.append(asyncio.create_task(send_one_request(ctxs[i], args)))
@@ -188,6 +166,8 @@ def main(args: argparse.Namespace):
         raise ValueError(f"Invalid parallel: {args.parallel}")
     if args.num_requests < args.parallel:
         raise ValueError(f"The num of requests should be larger than parallel")
+    if args.streaming:
+        raise ValueError("Currently not support streaming mode")
     if args.out_dir:
         if not os.path.exists(args.out_dir):
             os.makedirs(args.out_dir)
@@ -215,6 +195,8 @@ def main(args: argparse.Namespace):
         total_seconds += ret[6]
         e2e_raw.extend(ret[7])
         num += 1
+    #e2e_raw_simple = [round(x, 2) for x in e2e_raw]
+    #print(f"E2E latency: {e2e_raw_simple}")
     data.insert(0, ["avg", f"{int(sum_value[0]/num)}", f"{(sum_value[1]/num):.2f}", f"{(sum_value[2]/num):.2f}", f"{(sum_value[3]/num/1024):.1f}"])
     percentile = [50, 90, 99]
     e2e_p = np.percentile(e2e_raw, percentile)
