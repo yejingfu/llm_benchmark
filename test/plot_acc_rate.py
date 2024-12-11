@@ -253,7 +253,8 @@ def plot_with_bs(metrics_base, metrics_targets, args):
                 m_b = find_metrics(metrics_base, length, bs)
                 m_t = find_metrics(m_target, length, bs)
                 if m_b is None or m_t is None:
-                    raise RuntimeError(f"Not found right metrics data, length: {length}, bs: {bs}, base: {m_b}, target: {m_t}")
+                    print(f"Not found right metrics data, length: {length}, bs: {bs}, base: {m_b}, target: {m_t}")
+                    continue
                 base_throughput = m_b.throughput_per_gpu[0] + m_b.throughput_per_gpu[1] if DEF_PLOT_THROUGHPUT_PER_GPU else m_b.throughput[0] + m_b.throughput[1]
                 target_throughput = m_t.throughput_per_gpu[0] + m_t.throughput_per_gpu[1] if DEF_PLOT_THROUGHPUT_PER_GPU else m_t.throughput[0] + m_t.throughput[1]
                 plt_data[-1]["x"].append(x_val)
@@ -345,6 +346,8 @@ def plot_with_best(best_metrics_base, best_metrics_targets, args):
             mt = find_metrics(target, length, None)
             if mb is None or mt is None:
                 raise RuntimeError(f"Not found right metrics data, length: {length}, base: {mb}, target: {mt}")
+            if len(mt.throughput_per_gpu) < 3 or len(mb.throughput_per_gpu) < 3:
+                continue
             plt_data[-1]["x"].append(x_val)
             speedup = mt.throughput_per_gpu[3] / mb.throughput_per_gpu[3] if DEF_PLOT_THROUGHPUT_PER_GPU else mt.throughput[3] / mb.throughput[3]
             plt_data[-1]["y"].append(speedup)
