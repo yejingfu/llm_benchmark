@@ -99,8 +99,10 @@ function guess_served_name() {
     fi
     if [[ "$name" == *fp8* ]]; then
         sufix="$sufix-fp8"
-    elif [[ "$name" == *awq ]]; then
+    elif [[ "$name" == *awq* ]]; then
         sufix="$sufix-int4"
+    elif [[ "$name" == *888* ]]; then
+        sufix="$sufix-888"
     fi
     if [[ "$name" == *llama-3.1* ]]; then
         ret="llama31-$sufix"
