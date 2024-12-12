@@ -459,7 +459,7 @@ def main(args: argparse.Namespace):
     dump = f"\n\nResult: {label}"
     for ctx in total_ctx:
         if ctx.e2e_latency > 1e-5:
-            out_tokens = len(tokenizer.encode(ctx.output)) if tokenizer else 0
+            ctx.output_tokens = len(tokenizer.encode(ctx.output)) if tokenizer else 0
             dump += f"\n[{ctx.index}] e2e: {ctx.e2e_latency:.3f}, ttft: {ctx.ttft:.3f}, gen-latency: {ctx.gen_latency:.3f}, in-tokens: {ctx.input_tokens}, out-tokens: {ctx.output_tokens}, sec-per-token: {(ctx.gen_latency/ctx.output_tokens):.3f}"
     dump += "\n"
     print(dump)
