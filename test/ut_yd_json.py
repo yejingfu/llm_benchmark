@@ -94,10 +94,10 @@ Es para ayudarme a terminar de montar una piscina de poliéster enterrada. Monta
 
 DEF_NUM_PROMPTS = len(USER_PROMPTS)
 
-DEF_TEMPERATURE = 0
-DEF_TOP_P = 1
-DEF_PRESENCE_PENALTY = 0
-DEF_FREQ_PENALTY = 0
+DEF_TEMPERATURE = 0.9
+DEF_TOP_P = 0.9
+DEF_PRESENCE_PENALTY = 1.8
+DEF_FREQ_PENALTY = 1
 
 @dataclass
 class Context:
@@ -117,7 +117,7 @@ def get_chat_payload(req, args):
         "top_p": DEF_TOP_P,
         "presence_penalty": DEF_PRESENCE_PENALTY,
         "frequency_penalty": DEF_FREQ_PENALTY,
-        #"repetition_penalty": 1,
+        #"repetition_penalty": DEF_FREQ_PENALTY,
         "stop": ["<|eot_id|>", "<start_header_id|>", "<|end_header_id|>"],
         "model": args.model,
         "messages": [
