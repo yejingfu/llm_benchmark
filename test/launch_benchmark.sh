@@ -9,6 +9,7 @@ BM_MODEL_DIR=
 BM_HF_MODEL=
 BM_SERVED_NAME=
 BM_GPU_IDS="0,1,2,3,4,5,6,7"
+BM_GPU_MIG_IDS=
 BM_TP=1
 BM_MAX_CTX_LEN="32768"
 BM_LISTEN_PORT="18011"
@@ -101,12 +102,20 @@ function run() {
             git lfs pull
             popd
         fi
-        if [[ "$BM_MODEL_DIR" == *-888* ]]; then
-            BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --kv_cache_dtype fp8"
-        fi
         num_gpus=$(count_numbers $BM_GPU_IDS)
         docker_name="benchmark_$RANDOM"
-        docker_args="-d --gpus all --privileged --ipc=host --net=host -v $BM_MODEL_DIR:/this_model -e CUDA_VISIBLE_DEVICES=$BM_GPU_IDS"
+        docker_args="-d --gpus"
+        if [ x"$BM_GPU_MIG_IDS" == x"" ]; then
+            docker_args="$docker_args all"
+        else
+            docker_args="$docker_args \"device=$BM_GPU_MIG_IDS\""
+        fi
+        docker_args="$docker_args --privileged --ipc=host --net=host -v $BM_MODEL_DIR:/this_model -e CUDA_VISIBLE_DEVICES=$BM_GPU_IDS"
+        if [[ "$BM_MODEL_DIR" == *-888* ]]; then
+            docker_args="$docker_args -e VLLM_ATTENTION_BACKEND=FLASHINFER"
+            BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --kv_cache_dtype fp8"
+        fi
+
         if [[ "$BM_IMAGE" == *_kvcache* ]]; then
             docker_args="$docker_args -e FULL_KV_LAYERS=6 -e SLIDING_WINDOW_WIDTH=1280"
         fi
@@ -175,7 +184,11 @@ function run() {
     fi
 
     for in_len in ${BM_CONTEXT_LEN[@]}; do
-        out_len=$((in_len/$BM_CTX_LEN_RATIO))
+        if [[ $in_len -eq 6100 ]];then
+            out_len=170
+        else
+            out_len=$((in_len/$BM_CTX_LEN_RATIO))
+        fi
         for parallel in ${BM_PARALLELS[@]};do
             local args2="$args --sampling-policy normal --prompt-len-mean $in_len --prompt-len-std 10 --output-len-mean $out_len --output-len-std 6 --parallel $parallel"
             if [ $parallel -eq 1 ]; then
@@ -300,6 +313,11 @@ function main() {
     --gpu-ids)
         shift
         BM_GPU_IDS="$1"
+        shift
+        ;;
+    --gpu-mig-ids)
+        shift
+        BM_GPU_MIG_IDS="$1"
         shift
         ;;
     --tp)

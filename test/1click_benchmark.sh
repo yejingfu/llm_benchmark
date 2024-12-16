@@ -16,6 +16,7 @@ DEF_DS_HF_PATH="datasets/yejingfu/ShareGPT_V3/resolve/main/ShareGPT_V3_unfiltere
 BM_DOCKER_IMAGE="image.paigpu.com/library/ppinfer_vllm:0.6.2.2"
 BM_GPU_TYPE=
 BM_GPU_IDS="0,1,2,3,4,5,6,7"
+BM_GPU_MIG_IDS=
 BM_MODELS=
 BM_TPS=
 BM_TOKENIZER_DIR=
@@ -32,6 +33,7 @@ function usage() {
     LOG INFO "$PRG_NAME [options]"
     LOG INFO "  --gpu-type The type of GPU, can be ${DEF_GPU_TYPES[@]}"
     LOG INFO "  --gpu-ids The list of GPU IDs, sperated by comma, default is 0,1,2,3,4,5,6,7"
+    LOG INFO "  --gpu-mig-ids (optional)The list of GPU MIG instance IDs, sperated by comma"
     LOG INFO "  --models Can be model short name within ${!DEF_MODEL_HF_NAMES[@]}, or huggingface model name, or local model absolute path. If many, separated by comma"
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
@@ -117,6 +119,9 @@ function guess_served_name() {
     else
         ret="unknown-$sufix"
     fi
+    if [ x"$BM_GPU_MIG_IDS" != x"" ]; then
+        ret="$ret-mig"
+    fi
     echo $ret
 }
 
@@ -193,7 +198,12 @@ function run_benchmark() {
         local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
         local port=$((18000+RANDOM%100))
         local server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
-        if [[ "$served_name" == *llama3-* ]]; then
+        if [ x"$BM_GPU_MIG_IDS" != x"" ]; then
+            server_args="$server_args --gpu-mig-ids $BM_GPU_MIG_IDS"
+        fi
+        if [[ "$served_name" == *llama33-* ]]; then
+            server_args="$server_args --max-ctx-len 131072"
+        elif [[ "$served_name" == *llama3-* ]]; then
             server_args="$server_args --max-ctx-len 8192"
         fi
         local client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
@@ -215,7 +225,7 @@ function run_benchmark() {
 }
 
 function run() {
-    LOG INFO "BM_GPU_TYPE: $BM_GPU_TYPE, BM_GPU_IDS: $BM_GPU_IDS, BM_MODEL_NAME: $BM_MODEL_NAME, BM_DOCKER_IMAGE: $BM_DOCKER_IMAGE, BM_MODEL_DIR: $BM_MODEL_DIR"
+    LOG INFO "BM_GPU_TYPE: $BM_GPU_TYPE, BM_GPU_IDS: $BM_GPU_IDS, BM_MODEL_NAME: $BM_MODEL_NAME, BM_DOCKER_IMAGE: $BM_DOCKER_IMAGE"
     if [ x"$BM_GPU_TYPE" = x"" ];then
         LOG ERR "Empty gpu type, please set by --gpu-type"
     fi
@@ -228,6 +238,17 @@ function run() {
     if [ x"$BM_TPS" = x"" ]; then
         LOG ERR "The tensor parallel is empty, please set by --tp"
     fi
+    if [ x"$BM_GPU_IDS" = x"" ];then
+        LOG ERR "Empty gpu id list, please set by --gpu-ids"
+    fi
+    if [ x"$BM_GPU_MIG_IDS" != x"" ]; then
+        num_gpu_ids=$(count_numbers $BM_GPU_IDS)
+        num_gpu_mig_ids=$(count_numbers $BM_GPU_MIG_IDS)
+        if [[ $num_gpu_ids -ne $num_gpu_mig_ids ]]; then
+            LOG ERR "The num of gpu-ids and gpu-mig-ids are not equal"
+        fi
+    fi
+
     local model_names=($(split_string $BM_MODELS))
     local tps=($(split_string $BM_TPS))
     local num_models=${#model_names[@]}
@@ -283,6 +304,11 @@ function main() {
         BM_GPU_IDS="$1"
         shift
         ;;
+    --gpu-mig-ids)
+        shift
+        BM_GPU_MIG_IDS="$1"
+        shift
+        ;;
     --models)
         shift
         BM_MODELS="$1"
@@ -334,5 +360,6 @@ function main() {
     run
 }
 
+RANDOM=`date +%s`
 main "$@"
 
