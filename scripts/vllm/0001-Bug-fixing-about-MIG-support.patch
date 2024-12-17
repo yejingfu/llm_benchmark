@@ -1,0 +1,98 @@
+From 7283741897c70c7c4e541b7a3248e49a615b5ab6 Mon Sep 17 00:00:00 2001
+From: linke <linke@pplabs.org>
+Date: Tue, 17 Dec 2024 16:21:57 +0800
+Subject: [PATCH] Bug fixing about MIG support
+
+Signed-off-by: linke <linke@pplabs.org>
+---
+ vllm/platforms/cuda.py | 53 ++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 46 insertions(+), 7 deletions(-)
+
+diff --git a/vllm/platforms/cuda.py b/vllm/platforms/cuda.py
+index 9c5212ac..ed95b554 100644
+--- a/vllm/platforms/cuda.py
++++ b/vllm/platforms/cuda.py
+@@ -83,6 +83,30 @@ def warn_if_different_devices():
+                 " make sure to set `CUDA_DEVICE_ORDER=PCI_BUS_ID` to "
+                 "avoid unexpected behavior.", "\n".join(device_names))
+ 
++def get_mig_uuid():
++    if "CUDA_VISIBLE_DEVICES" in os.environ and "MIG" in os.environ["CUDA_VISIBLE_DEVICES"]:
++        device_ids = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
++        if len(device_ids) == 1:
++            return device_ids[0]
++        else:
++            raise RuntimeError("Not support multi MIG instances")
++    return None
++
++@with_nvml_context
++def get_name_from_mig_id(mig_id):
++    handle = pynvml.nvmlDeviceGetHandleByUUID(mig_id.encode('utf-8'))
++    return pynvml.nvmlDeviceGetName(handle)
++
++@with_nvml_context
++def get_total_mem_from_mig_id(mig_id):
++    handle = pynvml.nvmlDeviceGetHandleByUUID(mig_id.encode('utf-8'))
++    return int(pynvml.nvmlDeviceGetMemoryInfo(handle).total)
++
++@with_nvml_context
++def get_index_from_uuid(uuid):
++    gpu_handle = pynvml.nvmlDeviceGetHandleByUUID(uuid.encode("utf-8"))
++    index = pynvml.nvmlDeviceGetIndex(gpu_handle)
++    return index
+ 
+ try:
+     from sphinx.ext.autodoc.mock import _MockModule
+@@ -100,7 +124,10 @@ def device_id_to_physical_device_id(device_id: int) -> int:
+             raise RuntimeError("CUDA_VISIBLE_DEVICES is set to empty string,"
+                                " which means GPU support is disabled.")
+         physical_device_id = device_ids[device_id]
+-        return int(physical_device_id)
++        if "GPU-" in physical_device_id:
++            return int(get_index_from_uuid(physical_device_id))
++        else:
++            return int(physical_device_id)
+     else:
+         return device_id
+ 
+@@ -110,19 +137,31 @@ class CudaPlatform(Platform):
+ 
+     @classmethod
+     def get_device_capability(cls, device_id: int = 0) -> DeviceCapability:
+-        physical_device_id = device_id_to_physical_device_id(device_id)
+-        major, minor = get_physical_device_capability(physical_device_id)
++        mig_id = get_mig_uuid()
++        if mig_id is None:
++            physical_device_id = device_id_to_physical_device_id(device_id)
++            major, minor = get_physical_device_capability(physical_device_id)
++        else:
++            major, minor = get_physical_device_capability()
+         return DeviceCapability(major=major, minor=minor)
+ 
+     @classmethod
+     def get_device_name(cls, device_id: int = 0) -> str:
+-        physical_device_id = device_id_to_physical_device_id(device_id)
+-        return get_physical_device_name(physical_device_id)
++        mig_id = get_mig_uuid()
++        if mig_id is None:
++            physical_device_id = device_id_to_physical_device_id(device_id)
++            return get_physical_device_name(physical_device_id)
++        else:
++            return get_name_from_mig_id(mig_id)
+ 
+     @classmethod
+     def get_device_total_memory(cls, device_id: int = 0) -> int:
+-        physical_device_id = device_id_to_physical_device_id(device_id)
+-        return get_physical_device_total_memory(physical_device_id)
++        mig_id = get_mig_uuid()
++        if mig_id is None:
++            physical_device_id = device_id_to_physical_device_id(device_id)
++            return get_physical_device_total_memory(physical_device_id)
++        else:
++            return get_total_mem_from_mig_id(mig_id)
+ 
+     @classmethod
+     @with_nvml_context
+-- 
+2.34.1
+
