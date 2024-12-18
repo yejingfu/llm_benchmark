@@ -32,8 +32,8 @@ fi
 function usage() {
     LOG INFO "$PRG_NAME [options]"
     LOG INFO "  --gpu-type The type of GPU, can be ${DEF_GPU_TYPES[@]}"
-    LOG INFO "  --gpu-ids The list of GPU IDs, sperated by comma, default is 0,1,2,3,4,5,6,7"
-    LOG INFO "  --gpu-mig-ids (optional)The list of GPU MIG instance IDs, sperated by comma"
+    LOG INFO "  --gpu-ids (optional)The list of GPU IDs, sperated by comma, default is 0,1,2,3,4,5,6,7"
+    LOG INFO "  --gpu-mig-ids (optional)The list of GPU MIG instance IDs, if it is set, the --gpu-ids is ignored"
     LOG INFO "  --models Can be model short name within ${!DEF_MODEL_HF_NAMES[@]}, or huggingface model name, or local model absolute path. If many, separated by comma"
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
@@ -241,14 +241,6 @@ function run() {
     if [ x"$BM_GPU_IDS" = x"" ];then
         LOG ERR "Empty gpu id list, please set by --gpu-ids"
     fi
-    if [ x"$BM_GPU_MIG_IDS" != x"" ]; then
-        num_gpu_ids=$(count_numbers $BM_GPU_IDS)
-        num_gpu_mig_ids=$(count_numbers $BM_GPU_MIG_IDS)
-        if [[ $num_gpu_ids -ne $num_gpu_mig_ids ]]; then
-            LOG ERR "The num of gpu-ids and gpu-mig-ids are not equal"
-        fi
-    fi
-
     local model_names=($(split_string $BM_MODELS))
     local tps=($(split_string $BM_TPS))
     local num_models=${#model_names[@]}

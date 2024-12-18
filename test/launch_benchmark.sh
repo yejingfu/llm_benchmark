@@ -104,13 +104,12 @@ function run() {
         fi
         num_gpus=$(count_numbers $BM_GPU_IDS)
         docker_name="benchmark_$RANDOM"
-        docker_args="-d --gpus"
+        docker_args="-d --gpus all --privileged --ipc=host --net=host -v $BM_MODEL_DIR:/this_model"
         if [ x"$BM_GPU_MIG_IDS" == x"" ]; then
-            docker_args="$docker_args all"
+            docker_args="$docker_args -e CUDA_VISIBLE_DEVICES=$BM_GPU_IDS"
         else
-            docker_args="$docker_args \"device=$BM_GPU_MIG_IDS\""
+            docker_args="$docker_args -e CUDA_VISIBLE_DEVICES=$BM_GPU_MIG_IDS"
         fi
-        docker_args="$docker_args --privileged --ipc=host --net=host -v $BM_MODEL_DIR:/this_model -e CUDA_VISIBLE_DEVICES=$BM_GPU_IDS"
         if [[ "$BM_MODEL_DIR" == *-888* ]]; then
             docker_args="$docker_args -e VLLM_ATTENTION_BACKEND=FLASHINFER"
             BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --kv_cache_dtype fp8"
