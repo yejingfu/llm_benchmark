@@ -22,11 +22,12 @@ class MetricsData:
     tps: List[float] = field(default_factory=list)
     ## summary
     throughput: List[float] = field(default_factory=list)
+    rps: float = field(default=0.0)
     ## raw data
     raw_ttft: Optional[List[float]] = field(default_factory=list)
     raw_tpot: Optional[List[float]] = field(default_factory=list)
     raw_tps: Optional[List[float]] = field(default_factory=list)
-    
+
     def get_plot_label(self):
         return self.name + "#" + self.model + "#(" + str(self.input_len) + "," + str(self.output_len) + ")"
 
@@ -57,7 +58,7 @@ def plot_bars_percentile(ax, labels, dataset, percent):
         ax.bar(pos, dataset[i], width=bar_width, label=labels[i])
         if xticks_pos is None:
             xticks_pos = pos
-        
+
     xticks = [x[:-1]+")" for x in xticks]
     ax.set_xticks(pos, xticks)
 
