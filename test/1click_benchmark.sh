@@ -19,6 +19,7 @@ BM_GPU_IDS="0,1,2,3,4,5,6,7"
 BM_GPU_MIG_IDS=
 BM_MODELS=
 BM_TPS=
+BM_PREFIX_CACHE=0
 BM_TOKENIZER_DIR=
 BM_TEST_STRENGTH="high"
 BM_OUT_DIR="out"
@@ -206,6 +207,9 @@ function run_benchmark() {
             server_args="$server_args --max-ctx-len 131072"
         elif [[ "$served_name" == *llama3-* ]]; then
             server_args="$server_args --max-ctx-len 8192"
+        fi
+        if [ $BM_PREFIX_CACHE -eq 0 ]; then
+            server_args="$server_args --disable-prefix-cache"
         fi
         local client_args="--tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
         if [[ x"$BM_TEST_STRENGTH" = x"quick" ]];then

@@ -4,7 +4,7 @@ CUR_DIR=$(cd `dirname $0`;pwd)
 source $CUR_DIR/util.sh
 
 ## relaunch the server docker for every test case
-BM_RESET_SERVER=1
+BM_RESET_SERVER=0
 
 # server side
 BM_IMAGE="image.paigpu.com/library/ppinfer_vllm:0.6.2.2"
@@ -15,9 +15,10 @@ BM_GPU_IDS="0,1,2,3,4,5,6,7"
 BM_GPU_MIG_IDS=
 BM_TP=1
 BM_MAX_CTX_LEN="32768"
+BM_PREFIX_CACHE=1
 BM_LISTEN_PORT=
 BM_REAL_LISTEN_PORT=
-BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
+BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-chunked-prefill"
 BM_DEF_SERVER_EXTA_ARGS_KVCACHE="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests"
 
 if [[ x"$HF_ENDPOINT" = x"" ]]; then
@@ -50,6 +51,7 @@ function usage() {
     LOG INFO "  --tp (optional) The tensor parallel setting, default is $BM_TP"
     LOG INFO "  --max-ctx-len (optional) The max length of context, default is $BM_MAX_CTX_LEN"
     LOG INFO "  --listen-port (optional) The http listening port"
+    LOG INFO "  --disable-prefix-cache (optional) Disable prefix-caching"
     LOG INFO "  --extra-server-args (optional) The extra server argument, default is: $BM_DEF_SERVER_EXTA_ARGS"
     LOG INFO " client side:"
     LOG INFO "  --endpoint (optional) The LLM server URL, if not set, use http://localhost:<port>/v1"
@@ -137,6 +139,9 @@ function run() {
             if [ $? -ne 1 ]; then
                 LOG INFO "Failed to pull docker image: $BM_IMAGE"
             fi
+        fi
+        if [ $BM_PREFIX_CACHE -eq 1 ]; then
+            BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --enable-prefix-caching"
         fi
         if [[ "$BM_IMAGE" == *_kvcache* ]]; then
             BM_DEF_SERVER_EXTA_ARGS=$BM_DEF_SERVER_EXTA_ARGS_KVCACHE
@@ -374,6 +379,10 @@ function main() {
         shift
         BM_LISTEN_PORT=$1
         shift
+        ;;
+    --disable-prefix-cache)
+        shift
+        BM_PREFIX_CACHE=0
         ;;
     --extra-server-args)
         shift
