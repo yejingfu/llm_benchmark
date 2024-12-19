@@ -183,7 +183,7 @@ function run() {
         docker_name=$(get_avail_docker_name)
         run_server $docker_name $docker_args $BM_IMAGE $server_args
         if [ x"$BM_LOG_FILE" != x"" ]; then
-            echo "\ndocker run --name $docker_name $docker_args $BM_IMAGE $server_args --port $BM_REAL_LISTEN_PORT">>$BM_LOG_FILE
+            echo "docker run --name $docker_name $docker_args $BM_IMAGE $server_args --port $BM_REAL_LISTEN_PORT">>$BM_LOG_FILE
         fi
     fi
     ## Client side
@@ -223,7 +223,7 @@ function run() {
                 docker_name=$(get_avail_docker_name)
                 run_server $docker_name $docker_args $BM_IMAGE $server_args
                 if [ x"$BM_LOG_FILE" != x"" ]; then
-                    echo "\ndocker run --name $docker_name $docker_args $BM_IMAGE $server_args --port $BM_REAL_LISTEN_PORT">>$BM_LOG_FILE
+                    echo "docker run --name $docker_name $docker_args $BM_IMAGE $server_args --port $BM_REAL_LISTEN_PORT">>$BM_LOG_FILE
                 fi
             fi
             local args2="--endpoint $BM_ENDPOINT"
