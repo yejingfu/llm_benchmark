@@ -73,6 +73,7 @@ remove_docker_container() {
     do
         # docker stop $name
         docker rm -f $name
+        sleep 2
         ret=$(check_container_exists $name)
     done
 }
@@ -128,5 +129,18 @@ split_string() {
     fi
     IFS=',' read -ra arr <<< "$str"
     echo "${arr[@]}"
+}
+
+get_available_port() {
+    local port=$1
+    for i in {0..20}; do
+        avail_port=$((port+i))
+        if lsof -i :"$avail_port" | grep -q LISTEN; then
+            continue
+        else
+            echo $avail_port
+            break
+        fi
+    done
 }
 

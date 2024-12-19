@@ -38,7 +38,7 @@ function usage() {
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
-    LOG INFO "  --test-strength(optional) The test strength level, can be: low, middle, high, very-high, super-high, default is high"
+    LOG INFO "  --test-strength(optional) The test strength level, can be: quick, low, middle, high, very-high, super-high, default is high"
     LOG INFO "  --out-dir(optional) The output folder to save the test results, default is out"
     LOG INFO "  --setup(optional) Setup the testing envrionment, like install docker and git-lfs"
     LOG INFO "  --server-only(optional) Run vLLM engine directly"
@@ -193,11 +193,12 @@ function run_benchmark() {
         fi
         LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $client_args"
         $CUR_DIR/launch_benchmark.sh $client_args
-        python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+        if [ -f "$log_file_path" ]; then
+            python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+        fi
     else
         local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
-        local port=$((18000+RANDOM%100))
-        local server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp --listen-port $port"
+        local server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp"
         if [ x"$BM_GPU_MIG_IDS" != x"" ]; then
             server_args="$server_args --gpu-mig-ids $BM_GPU_MIG_IDS"
         fi
@@ -206,8 +207,10 @@ function run_benchmark() {
         elif [[ "$served_name" == *llama3-* ]]; then
             server_args="$server_args --max-ctx-len 8192"
         fi
-        local client_args="--endpoint http://localhost:$port/v1 --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
-        if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
+        local client_args="--tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
+        if [[ x"$BM_TEST_STRENGTH" = x"quick" ]];then
+            client_args="$client_args --context-lens 1000 --batches 1,2"
+        elif [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
             client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
         elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
             client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
@@ -220,7 +223,9 @@ function run_benchmark() {
         fi
         LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
         $CUR_DIR/launch_benchmark.sh $server_args $client_args
-        python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+        if [ -f "$log_file_path" ]; then
+            python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+        fi
     fi
 }
 
