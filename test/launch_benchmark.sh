@@ -219,6 +219,8 @@ function run() {
     for in_len in ${BM_CONTEXT_LEN[@]}; do
         if [[ $in_len -eq 6100 ]];then
             out_len=170
+        elif [[ $in_len -eq 1600 ]];then
+            out_len=200
         else
             out_len=$((in_len/$BM_CTX_LEN_RATIO))
         fi

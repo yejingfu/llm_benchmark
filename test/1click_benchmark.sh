@@ -41,6 +41,7 @@ function usage() {
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
     LOG INFO "  --test-strength(optional) The test strength level, can be: quick, low, middle, high, very-high, super-high, default is high"
     LOG INFO "  --out-dir(optional) The output folder to save the test results, default is out"
+    LOG INFO "  --enable-prefix-cache(optional) Enable prefix caching feature during the tests"
     LOG INFO "  --setup(optional) Setup the testing envrionment, like install docker and git-lfs"
     LOG INFO "  --server-only(optional) Run vLLM engine directly"
     LOG INFO "  --client-only(optional) Run the client only, input server endpoint to connect"
@@ -107,13 +108,13 @@ function guess_served_name() {
     elif [[ "$name" == *888* ]]; then
         sufix="$sufix-888"
     fi
-    if [[ "$name" == *llama-3.1* ]]; then
+    if [[ "$name" == *llama-3.1* ]] || [[ "$name" == *l3.1-* ]]; then
         ret="llama31-$sufix"
-    elif [[ "$name" == *llama-3.2* ]]; then
+    elif [[ "$name" == *llama-3.2* ]] || [[ "$name" == *l3.2-* ]] ; then
         ret="llama32-$sufix"
-    elif [[ "$name" == *llama-3.3* ]]; then
+    elif [[ "$name" == *llama-3.3* ]] || [[ "$name" == *l3.3-* ]] ; then
         ret="llama33-$sufix"
-    elif [[ "$name" == *llama-3* ]]; then
+    elif [[ "$name" == *llama-3* ]] || [[ "$name" == *l3-* ]] ; then
         ret="llama3-$sufix"
     elif [[ "$name" == *llama* ]]; then
         ret="llama-$sufix"
@@ -334,6 +335,10 @@ function main() {
         shift
         BM_TEST_STRENGTH="$1"
         shift
+        ;;
+    --enable-prefix-cache)
+        shift
+        BM_PREFIX_CACHE=1
         ;;
     --setup)
         shift
