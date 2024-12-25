@@ -14,12 +14,14 @@ BM_SERVED_NAME=
 BM_GPU_IDS="0,1,2,3,4,5,6,7"
 BM_GPU_MIG_IDS=
 BM_TP=1
+BM_SPEC_MODEL=
 BM_MAX_CTX_LEN="32768"
 BM_PREFIX_CACHE=1
 BM_LISTEN_PORT=
 BM_REAL_LISTEN_PORT=
 BM_DEF_SERVER_EXTA_ARGS="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-chunked-prefill"
 BM_DEF_SERVER_EXTA_ARGS_KVCACHE="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests"
+BM_DEF_SERVER_EXTA_ARGS_SPEC="--swap-space 16 --gpu-memory-utilization 0.95 --dtype auto --max-num-seqs 32 --disable-log-requests --num_speculative_tokens 5 --speculative_disable_by_batch_size 10"
 
 if [[ x"$HF_ENDPOINT" = x"" ]]; then
     HF_ENDPOINT="https://huggingface.co"
@@ -53,6 +55,7 @@ function usage() {
     LOG INFO "  --listen-port (optional) The http listening port"
     LOG INFO "  --disable-prefix-cache (optional) Disable prefix-caching"
     LOG INFO "  --extra-server-args (optional) The extra server argument, default is: $BM_DEF_SERVER_EXTA_ARGS"
+    LOG INFO "  --spec-model (optional) The extra server argument, default is: $BM_DEF_SERVER_EXTA_ARGS"
     LOG INFO " client side:"
     LOG INFO "  --endpoint (optional) The LLM server URL, if not set, use http://localhost:<port>/v1"
     LOG INFO "  --api-key (optional) The api key used to call commercial service"
@@ -140,11 +143,16 @@ function run() {
                 LOG INFO "Failed to pull docker image: $BM_IMAGE"
             fi
         fi
-        if [ $BM_PREFIX_CACHE -eq 1 ]; then
-            BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --enable-prefix-caching"
-        fi
         if [[ "$BM_IMAGE" == *_kvcache* ]]; then
             BM_DEF_SERVER_EXTA_ARGS=$BM_DEF_SERVER_EXTA_ARGS_KVCACHE
+        elif [[ "$BM_IMAGE" == *_spec_decode* ]]; then
+            if [[ x"$BM_SPEC_MODEL" == x"" ]]; then
+                LOG ERR "No speculative draft model, please set with --spec-model"
+            fi
+            BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS_SPEC --speculative-model $BM_SPEC_MODEL"
+        fi
+        if [ $BM_PREFIX_CACHE -eq 1 ]; then
+            BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --enable-prefix-caching"
         fi
         if [ ! -d "$BM_MODEL_DIR" ]; then
             if [ x"$BM_HF_MODEL" = x"" ]; then
@@ -394,6 +402,11 @@ function main() {
     --max-ctx-len)
         shift
         BM_MAX_CTX_LEN="$1"
+        shift
+        ;;
+    --spec-model)
+        shift
+        BM_SPEC_MODEL="$1"
         shift
         ;;
     *)

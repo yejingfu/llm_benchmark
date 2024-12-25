@@ -18,6 +18,7 @@ BM_GPU_TYPE=
 BM_GPU_IDS="0,1,2,3,4,5,6,7"
 BM_GPU_MIG_IDS=
 BM_MODELS=
+BM_SPEC_MODEL=
 BM_TPS=
 BM_PREFIX_CACHE=0
 BM_TOKENIZER_DIR=
@@ -39,6 +40,7 @@ function usage() {
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
+    LOG INFO "  --spec-model (optional) The speculative decoding draft model"
     LOG INFO "  --test-strength(optional) The test strength level, can be: quick, low, middle, high, very-high, super-high, default is high"
     LOG INFO "  --out-dir(optional) The output folder to save the test results, default is out"
     LOG INFO "  --enable-prefix-cache(optional) Enable prefix caching feature during the tests"
@@ -329,6 +331,11 @@ function main() {
     --docker-image)
         shift
         BM_DOCKER_IMAGE="$1"
+        shift
+        ;;
+    --spec-model)
+        shift
+        BM_SPEC_MODEL="$1"
         shift
         ;;
     --test-strength)
