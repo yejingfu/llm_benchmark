@@ -1,0 +1,24 @@
+From a021517729f5918787893e033694a1e9610e2c8a Mon Sep 17 00:00:00 2001
+From: linke <linke@pplabs.org>
+Date: Tue, 24 Dec 2024 11:51:55 +0800
+Subject: [PATCH] Update the cuda-cublas lib to fix crash on H20
+
+nvidia-cublas-cu12==12.4.5.8
+
+Signed-off-by: linke <linke@pplabs.org>
+---
+ requirements-cuda.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/requirements-cuda.txt b/requirements-cuda.txt
+index 5d4dee8c..3dd7b480 100644
+--- a/requirements-cuda.txt
++++ b/requirements-cuda.txt
+@@ -8,3 +8,4 @@ torch == 2.5.1; platform_machine != 'aarch64'
+ # These must be updated alongside torch
+ torchvision == 0.20.1; platform_machine != 'aarch64' # Required for phi3v processor. See https://github.com/pytorch/vision?tab=readme-ov-file#installation for corresponding version
+ xformers == 0.0.28.post3; platform_system == 'Linux' and platform_machine == 'x86_64'  # Requires PyTorch 2.5.1
++nvidia-cublas-cu12==12.4.5.8 # H20
+-- 
+2.34.1
+

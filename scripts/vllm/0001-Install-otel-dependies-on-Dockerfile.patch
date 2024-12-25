@@ -1,0 +1,26 @@
+From 69765ceb623dc8ac90fc1959661bbbcff32cb6d7 Mon Sep 17 00:00:00 2001
+From: linke <linke@pplabs.org>
+Date: Tue, 24 Dec 2024 11:58:18 +0800
+Subject: [PATCH] Install otel dependies on Dockerfile
+
+Signed-off-by: linke <linke@pplabs.org>
+---
+ Dockerfile | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Dockerfile b/Dockerfile
+index 12370384..462ec1b6 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -200,6 +200,8 @@ if [ "$TARGETPLATFORM" != "linux/arm64" ]; then \
+     python3 -m pip install https://github.com/flashinfer-ai/flashinfer/releases/download/v0.1.6/flashinfer-0.1.6+cu121torch2.4-cp${PYTHON_VERSION_STR}-cp${PYTHON_VERSION_STR}-linux_x86_64.whl; \
+ fi
+ COPY examples examples
++COPY otel otel
++RUN python3 -m pip install opentelemetry-sdk opentelemetry-api opentelemetry-exporter-otlp opentelemetry-semantic-conventions-ai
+ #################### vLLM installation IMAGE ####################
+ 
+ #################### TEST IMAGE ####################
+-- 
+2.34.1
+
