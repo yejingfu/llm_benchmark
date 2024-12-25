@@ -168,7 +168,7 @@ function run() {
         else
             docker_args="$docker_args -e CUDA_VISIBLE_DEVICES=$BM_GPU_MIG_IDS"
         fi
-        if [[ "$BM_MODEL_DIR" == *-888* ]]; then
+        if [[ "$BM_MODEL_DIR" == *-888* ]] || [[ "$BM_MODEL_DIR" == *-w8a8kv8* ]]; then
             docker_args="$docker_args -e VLLM_ATTENTION_BACKEND=FLASHINFER"
             BM_DEF_SERVER_EXTA_ARGS="$BM_DEF_SERVER_EXTA_ARGS --kv_cache_dtype fp8"
         fi
