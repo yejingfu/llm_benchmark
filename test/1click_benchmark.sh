@@ -129,6 +129,23 @@ function guess_served_name() {
     echo $ret
 }
 
+function get_client_test_strength() {
+    if [[ x"$BM_TEST_STRENGTH" = x"quick" ]];then
+        ret="--context-lens 1000 --batches 1,2"
+    elif [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
+        ret="--context-lens 1000,3000,5000 --batches 1,2,4,8"
+    elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
+        ret="--context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
+    elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
+        ret="--context-lens 1000,3000,5000,6000 --batches 1,2,4,6,8,10,12,15"
+    elif [[ x"$BM_TEST_STRENGTH" = x"very-high" ]];then
+        ret="--context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+    else
+        ret="--context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+    fi
+    echo $ret
+}
+
 function run_benchmark() {
     local model_name="$1"
     local served_name=$model_name
@@ -163,7 +180,19 @@ function run_benchmark() {
             LOG INFO "Use model from local disk: $model_dir"
         fi
     fi
-    if [[ x"$BM_SERVER_ONLY" != x"" ]]; then
+    if [[ x"$BM_CLIENT_ONLY" != x"" ]]; then
+        if ! python3 -c "import loguru" &> /dev/null; then
+            LOG INFO "Install loguru"
+            pip install loguru
+        fi
+        local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
+        local client_args="--endpoint $BM_CLIENT_ONLY --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw $(get_client_test_strength)"
+        LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $client_args"
+        $CUR_DIR/launch_benchmark.sh $client_args
+        if [ -f "$log_file_path" ]; then
+            python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
+        fi
+    elif [[ x"$BM_SERVER_ONLY" != x"" ]]; then
         if ! python3 -c "import vllm" &> /dev/null; then
             LOG INFO "Install vllm v0.6.3.post1"
             pip install vllm==0.6.3.post1
@@ -171,65 +200,50 @@ function run_benchmark() {
         fi
         local port=$((18000+RANDOM%100))
         local server_args="--model $model_dir --tensor-parallel-size $tp --port $port --served-model-name $served_name"
-        if [[ "$served_name" == *llama3-* ]]; then
+        if [[ "$served_name" == *llama33-* ]]; then
+            server_args="$server_args --max-model-len 131072"
+        elif [[ "$served_name" == *llama3-* ]]; then
             server_args="$server_args --max-model-len 8192"
         else
-            server_args="$server_args --max-model-len 31768"
+            server_args="$server_args --max-model-len 32768"
         fi
-        server_args="$server_args --swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-prefix-caching --enable-chunked-prefill"
+        server_args="$server_args --swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests --enable-chunked-prefill"
+        if [ $BM_PREFIX_CACHE -eq 1 ]; then
+            server_args="$server_args --enable-prefix-caching"
+        fi
         LOG INFO "[RUN] python3 -m vllm.entrypoints.openai.api_server $server_args"
         CUDA_VISIBLE_DEVICES=$BM_GPU_IDS python3 -m vllm.entrypoints.openai.api_server $server_args
-    elif [[ x"$BM_CLIENT_ONLY" != x"" ]]; then
-        if ! python3 -c "import loguru" &> /dev/null; then
-            LOG INFO "Install loguru"
-            pip install loguru
-        fi
-        local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
-        local client_args="--endpoint $BM_CLIENT_ONLY --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
-        if [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
-            client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
-        elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
-            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
-        elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
-            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
-        else
-            client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
-        fi
-        LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $client_args"
-        $CUR_DIR/launch_benchmark.sh $client_args
-        if [ -f "$log_file_path" ]; then
-            python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
-        fi
     else
         local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
         local server_args="--image-name $BM_DOCKER_IMAGE --model-served-name $served_name --model-dir $model_dir --gpu-ids $BM_GPU_IDS --tp $tp"
         if [ x"$BM_GPU_MIG_IDS" != x"" ]; then
             server_args="$server_args --gpu-mig-ids $BM_GPU_MIG_IDS"
         fi
+        ## server extra args (except: --port, --tp, --model, --model-served-name)
+        local server_extra_args="--swap-space 16 --gpu-memory-utilization 0.92 --dtype auto --max-num-seqs 32 --disable-log-requests"
+        if [[ "$BM_IMAGE" == *_spec_decode* ]]; then
+            if [[ x"$BM_SPEC_MODEL" == x"" ]]; then
+                LOG ERR "No speculative draft model, please set with --spec-model"
+            fi
+            server_extra_args="$server_extra_args --num_speculative_tokens 5 --speculative_disable_by_batch_size 10 --speculative-model $BM_SPEC_MODEL"
+        elif [[ "$BM_DOCKER_IMAGE" != *_kvcache* ]]; then
+            server_extra_args="$server_extra_args --enable-chunked-prefill"
+        fi
+        ## set max model length
         if [[ "$served_name" == *llama33-* ]]; then
-            server_args="$server_args --max-ctx-len 131072"
+            server_extra_args="$server_extra_args --max-model-len 131072"
         elif [[ "$served_name" == *llama3-* ]]; then
-            server_args="$server_args --max-ctx-len 8192"
-        fi
-        if [ $BM_PREFIX_CACHE -eq 0 ]; then
-            server_args="$server_args --disable-prefix-cache"
-        fi
-        local client_args="--tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw"
-        if [[ x"$BM_TEST_STRENGTH" = x"quick" ]];then
-            client_args="$client_args --context-lens 1000 --batches 1,2"
-        elif [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
-            client_args="$client_args --context-lens 1000,3000,5000 --batches 1,2,4,8"
-        elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
-            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
-        elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
-            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10,12,15"
-        elif [[ x"$BM_TEST_STRENGTH" = x"very-high" ]];then
-            client_args="$client_args --context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+            server_extra_args="$server_extra_args --max-model-len 8192"
         else
-            client_args="$client_args --context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+            server_extra_args="$server_extra_args --max-model-len 32768"
         fi
-        LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args"
-        $CUR_DIR/launch_benchmark.sh $server_args $client_args
+        ## enable prefix caching
+        if [ $BM_PREFIX_CACHE -eq 1 ]; then
+            server_extra_args="$server_extra_args --enable-prefix-caching"
+        fi
+        local client_args="--tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw $(get_client_test_strength)"
+        LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args --extra-server-args $server_extra_args"
+        $CUR_DIR/launch_benchmark.sh $server_args $client_args --extra-server-args $server_extra_args
         if [ -f "$log_file_path" ]; then
             python3 $CUR_DIR/find_best_throughput.py --log-files $log_file_path --output $log_file_path
         fi
@@ -366,6 +380,7 @@ function main() {
         shift
         ;;
     *)
+        LOG INFO "Unknown argument $1"
         usage
         break
     esac
