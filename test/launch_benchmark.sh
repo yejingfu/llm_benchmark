@@ -35,8 +35,7 @@ BM_NUM_REQUESTS_SINGLE_BATCH=20
 BM_PRINT_RAW_METRICS=0
 BM_LOG_FILE=
 BM_PARALLELS=(1 2 3 4 5 6 7 8 9 10 12 15)
-BM_CONTEXT_LEN=(1000 3000 5000 6000 10000)
-BM_CTX_LEN_RATIO=10
+BM_CONTEXT_LEN="1000,100,3000,300,5000,500,6000,600,10000,1000"
 
 function usage() {
     LOG INFO "$PRG_NAME [options]"
@@ -60,8 +59,7 @@ function usage() {
     LOG INFO "  --add-sys-prompt (optional) Prepend system prompt prefix, using to test the prefix caching features"
     LOG INFO "  --log-file (optional) Save the output to file if set"
     LOG INFO "  --print-raw (optional) Print the raw metrics data like TTFT or TPOT"
-    LOG INFO "  --context-lens (optional) The array of input length, sperated by comma, default is ${BM_CONTEXT_LEN[@]}"
-    LOG INFO "  --context-len-ratio (optional) The ratio of input length / output lenght, default is $BM_CTX_LEN_RATIO"
+    LOG INFO "  --context-lens (optional) The array of input&output length, sperated by comma, following format: in_len,out_len,in_len,out_len,..., default is ${BM_CONTEXT_LEN}"
     LOG INFO "  --batches (optional) The list of batch size, sperated by comma, default is $BM_PARALLELS"
     exit
 }
@@ -209,15 +207,12 @@ function run() {
     if [ $BM_PRINT_RAW_METRICS -eq 1 ]; then
         args="$args --record-raw-metrics"
     fi
-
-    for in_len in ${BM_CONTEXT_LEN[@]}; do
-        if [[ $in_len -eq 6100 ]];then
-            out_len=170
-        elif [[ $in_len -eq 1600 ]];then
-            out_len=200
-        else
-            out_len=$((in_len/$BM_CTX_LEN_RATIO))
-        fi
+    local ctx_len=${#BM_CONTEXT_LEN[@]}
+    local i=0
+    while [[ $i -lt $ctx_len ]]; do
+        in_len=${BM_CONTEXT_LEN[$i]}
+        out_len=${BM_CONTEXT_LEN[$((i+1))]}
+        i=$((i+1))
         for parallel in ${BM_PARALLELS[@]};do
             ## start server every time
             if [[ $BM_RESET_SERVER -eq 1 ]]; then
@@ -307,32 +302,30 @@ function main() {
         ;;
     --context-lens)
         shift
-        BM_CONTEXT_LEN=()
-        BM_CONTEXT_LEN=$(convert_to_array $1)
+        local IFS=','
+        BM_CONTEXT_LEN=($1)
+        len=${#BM_CONTEXT_LEN[@]}
+        if [[ $((len%2)) -ne 0 ]]; then
+            LOG ERR "The context len should be in pair of input_len,output_len"
+        fi
         for len in ${BM_CONTEXT_LEN[@]}; do
-            if [[ $len -le 0 ]]; then
+            if [ $len -le 0 ]; then
                 LOG ERR "Invalid context len argument: $1"
             fi
         done
-        shift
-        ;;
-    --context-len-ratio)
-        shift
-        BM_CTX_LEN_RATIO=$1
-        if [[ $BM_CTX_LEN_RATIO -le 0 ]]; then
-            LOG ERR "Invalid context len ratio: $1"
-        fi
+        IFS=' '
         shift
         ;;
     --batches)
         shift
-        BM_PARALLELS=()
-        BM_PARALLELS=$(convert_to_array $1)
+        local IFS=','
+        BM_PARALLELS=($1)
         for p in ${BM_PARALLELS[@]}; do
             if [[ $p -le 0 ]]; then
                 LOG ERR "Invalid batches argument: $1"
             fi
         done
+        IFS=' '
         shift
         ;;
     ## server side

@@ -20,9 +20,11 @@ BM_GPU_MIG_IDS=
 BM_MODELS=
 BM_SPEC_MODEL=
 BM_TPS=
+BM_MAX_MODEL_LEN=
 BM_PREFIX_CACHE=0
 BM_TOKENIZER_DIR=
-BM_TEST_STRENGTH="high"
+BM_TEST_LENGTH="middle"
+BM_TEST_PARALLEL=
 BM_OUT_DIR="out"
 BM_SERVER_ONLY=
 BM_CLIENT_ONLY=
@@ -38,10 +40,12 @@ function usage() {
     LOG INFO "  --gpu-mig-ids (optional)The list of GPU MIG instance IDs, if it is set, the --gpu-ids is ignored"
     LOG INFO "  --models Can be model short name within ${!DEF_MODEL_HF_NAMES[@]}, or huggingface model name, or local model absolute path. If many, separated by comma"
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
+    LOG INFO "  --max-model-len(optional) The max model length, can leave unset"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
     LOG INFO "  --docker-image (optional) The docker image name, if not set, use default image: $BM_DOCKER_IMAGE"
     LOG INFO "  --spec-model (optional) The speculative decoding draft model"
-    LOG INFO "  --test-strength(optional) The test strength level, can be: quick, low, middle, high, very-high, super-high, default is high"
+    LOG INFO "  --length(optional) The test length, can be: quick, low, middle, high, or specific list of input_len,output_len, default is $BM_TEST_LENGTH"
+    LOG INFO "  --parallel(optional) The num of requtest sent in parallel, default is none"
     LOG INFO "  --out-dir(optional) The output folder to save the test results, default is out"
     LOG INFO "  --enable-prefix-cache(optional) Enable prefix caching feature during the tests"
     LOG INFO "  --setup(optional) Setup the testing envrionment, like install docker and git-lfs"
@@ -130,18 +134,21 @@ function guess_served_name() {
 }
 
 function get_client_test_strength() {
-    if [[ x"$BM_TEST_STRENGTH" = x"quick" ]];then
-        ret="--context-lens 1000 --batches 1,2"
-    elif [[ x"$BM_TEST_STRENGTH" = x"low" ]];then
-        ret="--context-lens 1000,3000,5000 --batches 1,2,4,8"
-    elif [[ x"$BM_TEST_STRENGTH" = x"middle" ]];then
-        ret="--context-lens 1000,3000,5000,6000 --batches 1,2,4,8,10"
-    elif [[ x"$BM_TEST_STRENGTH" = x"high" ]];then
-        ret="--context-lens 1000,3000,5000,6000 --batches 1,2,4,6,8,10,12,15"
-    elif [[ x"$BM_TEST_STRENGTH" = x"very-high" ]];then
-        ret="--context-lens 1000,3000,5000,6000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+    if [[ x"$BM_TEST_LENGTH" = x"quick" ]];then
+        ret="--context-lens 1000,100 --batches 1,2"
+    elif [[ x"$BM_TEST_LENGTH" = x"low" ]];then
+        ret="--context-lens 1000,100,3000,300,5000,500 --batches 1,2,4,8"
+    elif [[ x"$BM_TEST_LENGTH" = x"middle" ]];then
+        ret="--context-lens 1000,100,3000,300,5000,500 --batches 1,2,4,8,10"
+    elif [[ x"$BM_TEST_LENGTH" = x"high" ]];then
+        ret="--context-lens 1000,100,3000,300,5000,500,6000,600 --batches 1,2,4,6,8,10,15"
     else
-        ret="--context-lens 1000,3000,5000,6000,10000 --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+        ret="--context-lens $BM_TEST_LENGTH"
+        if [[ x"$BM_TEST_PARALLEL" != x"" ]];then
+            ret="$ret --batches $BM_TEST_PARALLEL"
+        else
+            ret="$ret --batches 1,2,3,4,5,6,7,8,9,10,12,15"
+        fi
     fi
     echo $ret
 }
@@ -200,7 +207,9 @@ function run_benchmark() {
         fi
         local port=$((18000+RANDOM%100))
         local server_args="--model $model_dir --tensor-parallel-size $tp --port $port --served-model-name $served_name"
-        if [[ "$served_name" == *llama33-* ]]; then
+        if [[ x"$BM_MAX_MODEL_LEN" != x"" ]]; then
+            server_extra_args="$server_extra_args --max-model-len $BM_MAX_MODEL_LEN"
+        elif [[ "$served_name" == *llama33-* ]]; then
             server_args="$server_args --max-model-len 131072"
         elif [[ "$served_name" == *llama3-* ]]; then
             server_args="$server_args --max-model-len 8192"
@@ -230,7 +239,9 @@ function run_benchmark() {
             server_extra_args="$server_extra_args --enable-chunked-prefill"
         fi
         ## set max model length
-        if [[ "$served_name" == *llama33-* ]]; then
+        if [[ x"$BM_MAX_MODEL_LEN" != x"" ]]; then
+            server_extra_args="$server_extra_args --max-model-len $BM_MAX_MODEL_LEN"
+        elif [[ "$served_name" == *llama33-* ]]; then
             server_extra_args="$server_extra_args --max-model-len 131072"
         elif [[ "$served_name" == *llama3-* ]]; then
             server_extra_args="$server_extra_args --max-model-len 8192"
@@ -337,6 +348,11 @@ function main() {
         BM_TPS="$1"
         shift
         ;;
+    --max-model-len)
+        shift
+        BM_MAX_MODEL_LEN="$1"
+        shift
+        ;;
     --tokenizer-dir)
         shift
         BM_TOKENIZER_DIR="$1"
@@ -352,9 +368,14 @@ function main() {
         BM_SPEC_MODEL="$1"
         shift
         ;;
-    --test-strength)
+    --length)
         shift
-        BM_TEST_STRENGTH="$1"
+        BM_TEST_LENGTH="$1"
+        shift
+        ;;
+    --parallel)
+        shift
+        BM_TEST_PARALLEL="$1"
         shift
         ;;
     --enable-prefix-cache)
