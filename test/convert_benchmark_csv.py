@@ -113,7 +113,7 @@ if __name__ == "__main__":
         description="Convert the llm benchmark data to csv and output to files"
     )
     parser.add_argument("--log-files", type=str, help="The log files, seperated by comma")
-    parser.add_argument("--percent", type=str, default="p90,p99", help="Which percentile to convert, default is p90,p99")
+    parser.add_argument("--percent", type=str, default="avg,p50,p90,p99", help="Which percentile to convert, default is avg,p50,p90,p99")
     args = parser.parse_args()
     main(args)
 
