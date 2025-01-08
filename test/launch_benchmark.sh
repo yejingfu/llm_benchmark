@@ -212,7 +212,7 @@ function run() {
     while [[ $i -lt $ctx_len ]]; do
         in_len=${BM_CONTEXT_LEN[$i]}
         out_len=${BM_CONTEXT_LEN[$((i+1))]}
-        i=$((i+1))
+        i=$((i+2))
         for parallel in ${BM_PARALLELS[@]};do
             ## start server every time
             if [[ $BM_RESET_SERVER -eq 1 ]]; then
