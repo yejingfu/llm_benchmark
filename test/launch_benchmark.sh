@@ -7,7 +7,7 @@ source $CUR_DIR/util.sh
 BM_RESET_SERVER=0
 
 # server side
-BM_IMAGE="image.paigpu.com/library/ppinfer_vllm:0.6.2.2"
+BM_IMAGE=
 BM_MODEL_DIR=
 BM_HF_MODEL=
 BM_SERVED_NAME=
@@ -174,15 +174,16 @@ function run() {
         fi
         server_args="$server_args $BM_DEF_SERVER_EXTA_ARGS"
         need_run_server=1
-    fi
 
-    if [[ $BM_RESET_SERVER -ne 1 ]]; then
-        docker_name=$(get_avail_docker_name)
-        run_server $docker_name $docker_args $BM_IMAGE $server_args
-        if [ x"$BM_LOG_FILE" != x"" ]; then
-            echo "docker run --name $docker_name $docker_args $BM_IMAGE $server_args --port $BM_REAL_LISTEN_PORT">>$BM_LOG_FILE
+        if [[ $BM_RESET_SERVER -ne 1 ]]; then
+            docker_name=$(get_avail_docker_name)
+            run_server $docker_name $docker_args $BM_IMAGE $server_args
+            if [ x"$BM_LOG_FILE" != x"" ]; then
+                echo "docker run --name $docker_name $docker_args $BM_IMAGE $server_args --port $BM_REAL_LISTEN_PORT">>$BM_LOG_FILE
+            fi
         fi
     fi
+
     ## Client side
     LOG INFO "Use endpoint: $BM_ENDPOINT"
     if [ x"$BM_TOKENIZER_PATH" = x"" ]; then
@@ -191,7 +192,10 @@ function run() {
     if [ x"$BM_DATASET_PATH" = x"" ]; then
         LOG ERR "Please set --dataset"
     fi
-    local args="--tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH --model $BM_SERVED_NAME"
+    local args="--tokenizer $BM_TOKENIZER_PATH --dataset $BM_DATASET_PATH"
+    if [ x"$BM_SERVED_NAME" != x"" ]; then
+        args="$args --model $BM_SERVED_NAME"
+    fi
     if [ x"$BM_API_KEY" != x"" ]; then
         args="$args --api-key $BM_API_KEY"
     fi
@@ -215,7 +219,7 @@ function run() {
         i=$((i+2))
         for parallel in ${BM_PARALLELS[@]};do
             ## start server every time
-            if [[ $BM_RESET_SERVER -eq 1 ]]; then
+            if [ x"$BM_IMAGE" != x"" ] && [ $BM_RESET_SERVER -eq 1 ]; then
                 docker_name=$(get_avail_docker_name)
                 run_server $docker_name $docker_args $BM_IMAGE $server_args
                 if [ x"$BM_LOG_FILE" != x"" ]; then
