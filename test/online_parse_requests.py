@@ -14,15 +14,19 @@ from loguru import logger
 @dataclass
 class RawRequest:
     model: str = field(default="")
-    prompt: str = field(default="")
+    prompt: Optional[str] = field(default=None)
+    messages: Optional[List[Dict[str, str]]] = field(default=None)
     frequency_penalty: Optional[float] = field(default=None)
     repetition_penalty: Optional[float] = field(default=None)
     presence_penalty: Optional[float] = field(default=None)
     temperature: Optional[float] = field(default=None)
     top_p: Optional[float] = field(default=None)
+    min_p: Optional[float] = field(default=None)
+    top_k: Optional[int] = field(default=None)
     max_tokens: Optional[int] = field(default=None)
     n: Optional[int] = field(default=None)
     stop: Optional[List[str]] = field(default=None)
+    ignore_eos: Optional[bool] = field(default=None)
     # statistics
     prompt_len: Optional[int] = field(default=None)
 
@@ -45,6 +49,10 @@ def create_request(obj):
         req.model = obj["model"]
     if "prompt" in obj:
         req.prompt = obj["prompt"]
+    if "messages" in obj:
+        req.messages = []
+        for msg in obj["messages"]:
+            req.messages.append(msg)
     if "frequency_penalty" in obj:
         req.frequency_penalty = float(obj["frequency_penalty"])
     if "repetition_penalty" in obj:
@@ -55,12 +63,18 @@ def create_request(obj):
         req.temperature = float(obj["temperature"])
     if "top_p" in obj:
         req.top_p = float(obj["top_p"])
+    if "min_p" in obj:
+        req.min_p = float(obj["min_p"])
+    if "top_k" in obj:
+        req.top_k = int(obj["top_k"])
     if "max_tokens" in obj:
         req.max_tokens = int(obj["max_tokens"])
     if "n" in obj:
         req.n = int(obj["n"])
     if "stop" in obj:
         req.stop = obj["stop"]
+    if "ignore_eos" in obj:
+        req.ignore_eos = bool(obj["ignore_eos"])
     return req
 
 def load_from_csv(file_path:str):
@@ -97,6 +111,8 @@ def main(args):
         return
     ## analyze requests
     logger.info(f"Get num of requests: {len(raw_requests)}")
+    #for i in range(len(raw_requests)):
+    #    print(f"request[{i}]: {raw_requests[i]}")
     if args.tokenizer and os.path.exists(args.tokenizer):
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
         prompt_lens = []
