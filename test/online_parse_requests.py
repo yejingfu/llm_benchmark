@@ -117,8 +117,12 @@ def main(args):
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
         prompt_lens = []
         for req in raw_requests:
-            req.prompt_len = len(tokenizer.encode(req.prompt)) if req.prompt else 0
-            prompt_lens.append(req.prompt_len)
+            if req.prompt:
+                req.prompt_len = len(tokenizer.encode(req.prompt))
+                prompt_lens.append(req.prompt_len)
+            elif req.messages:
+                req.prompt_len = sum([len(tokenizer.encode(f"{x}")) for x in req.messages])
+                prompt_lens.append(req.prompt_len)
         prompt_lens_percent = np.percentile(prompt_lens, [50, 90, 99])
         prompt_lens_avg = np.mean(prompt_lens)
         logger.info(f"Request prompt length(avg,p50,p90,p99): {prompt_lens_avg:.1f}, {prompt_lens_percent[0]:.1f}, {prompt_lens_percent[1]:.1f}, {prompt_lens_percent[2]:.1f}")

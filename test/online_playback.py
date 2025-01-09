@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import re
 import csv
 import os
 import sys
@@ -39,17 +40,22 @@ class LlmInputArgs:
     timestamp: str = ""
     raw_model: str = ""
     model: str = ""
-    prompt: str = ""
-    messages: List[Tuple] = field(default_factory=list)
-    stop: List[str] = field(default_factory=list)
-    temperature: Optional[float] = None
-    repetition_penalty: Optional[float] = None
-    top_p: Optional[float] = None
-    min_p: Optional[float] = None
-    top_k: Optional[int] = None
-    stream: Optional[bool] =  None
-    max_tokens: Optional[int] = None
-    prompt_len: int = 0
+
+    prompt: Optional[str] = field(default=None)
+    messages: Optional[List[Tuple]] = field(default=None)
+    frequency_penalty: Optional[float] = field(default=None)
+    repetition_penalty: Optional[float] = field(default=None)
+    presence_penalty: Optional[float] = field(default=None)
+    temperature: Optional[float] = field(default=None)
+    top_p: Optional[float] = field(default=None)
+    min_p: Optional[float] = field(default=None)
+    top_k: Optional[int] = field(default=None)
+    max_tokens: Optional[int] = field(default=None)
+    n: Optional[int] = field(default=None)
+    stop: Optional[List[str]] = field(default=None)
+    ignore_eos: Optional[bool] = field(default=None)
+    stream: Optional[bool] =  field(default=None)
+    prompt_len: Optional[int] = field(default=None)
     ## compatible to llm_request.ApiContext
     strict: Optional[bool] = None
     detail: Optional[str] = None
@@ -63,21 +69,39 @@ class LlmInputArgs:
         return {
             "prompt": self.prompt,
             "messages": self.messages,
-            "stop": self.stop,
-            "temperature": self.temperature,
+            "frequency_penalty": self.frequency_penalty,
             "repetition_penalty": self.repetition_penalty,
+            "presence_penalty": self.presence_penalty,
+            "temperature": self.temperature,
             "top_p": self.top_p,
             "min_p": self.min_p,
             "top_k": self.top_k,
-            "stream": self.stream,
-            "max_tokens": self.max_tokens
+            "max_tokens": self.max_tokens,
+            "n": self.n,
+            "stop": self.stop,
+            "ignore_eos": self.ignore_eos,
+            "stream": self.stream
         }
 
 def new_input_args(type: ApiType, input: str) -> Optional[LlmInputArgs]:
     input_args = None
     try:
         obj = json.loads(input)
-        if type == ApiType.ChatCompletion or type == ApiType.ChatCompletionStream:
+        if type == ApiType.UnknownType:
+            if "messages" in obj:
+                type = ApiType.ChatCompletionStream
+                input_args = LlmInputArgs(type)
+                input_args.messages = []
+                for msg in obj["messages"]:
+                    if "role" in msg and "content" in msg:
+                        input_args.messages.append(msg)
+            elif "prompt" in obj:
+                type = ApiType.CompletionStream
+                input_args = LlmInputArgs(type)
+                input_args.prompt = obj["prompt"]
+            else:
+                return None
+        elif type == ApiType.ChatCompletion or type == ApiType.ChatCompletionStream:
             if "messages" in obj and len(obj["messages"]) > 0:
                 input_args = LlmInputArgs(type)
                 for msg in obj["messages"]:
@@ -87,33 +111,103 @@ def new_input_args(type: ApiType, input: str) -> Optional[LlmInputArgs]:
             if "prompt" in obj and len(obj["prompt"]) > 0:
                 input_args = LlmInputArgs(type)
                 input_args.prompt = obj["prompt"]
-        if input_args is not None:
-            for k in obj:
+        for k in obj:
                 v = obj[k]
                 if k == "model":
                     input_args.raw_model = v
-                elif k == "temperature":
-                    input_args.temperature = v
+                elif k == "frequency_penalty":
+                    input_args.frequency_penalty = v
                 elif k == "repetition_penalty":
                     input_args.repetition_penalty = v
-                elif k == "stop":
-                    input_args.stop = v
+                elif k == "presence_penalty":
+                    input_args.presence_penalty = v
+                elif k == "temperature":
+                    input_args.temperature = v
                 elif k == "top_p":
                     input_args.top_p = v
                 elif k == "min_p":
                     input_args.min_p = v
                 elif k == "top_k":
                     input_args.top_k = v
-                elif k == "stream":
-                    input_args.stream = v
                 elif k == "max_tokens":
                     input_args.max_tokens = v
+                elif k == "n":
+                    input_args.n = v
+                elif k == "stop":
+                    input_args.stop = v
+                elif k == "ignore_eos":
+                    input_args.ignore_eos = v
+                elif k == "stream":
+                    input_args.stream = v
                 else:
                     if k not in ["prompt", "messages"]:
                         logger.warning(f"not support parameter: {k}: {v}")
     except Exception as e:
         logger.error(f"Invalid request body: {e}, raw data: {input}")
     return input_args
+
+def load_inputs_from_csv(file_path:str, num_reqs:int, req_ids:List[int]):
+    def _get_api_type(s:str) -> ApiType:
+        t = ApiType.UnknownType
+        if s.startswith("ChatCompletionStream"):
+            t = ApiType.ChatCompletionStream
+        elif s.startswith("ChatCompletion"):
+            t = ApiType.ChatCompletion
+        elif s.startswith("CompletionStream"):
+            t = ApiType.CompletionStream
+        elif s.startswith("Completion"):
+            t = ApiType.Completion
+        return t
+
+    def _decode_unicode_strings(text):
+        if len(text) > 0 and text[0] == '\ufeff':
+            text = text[1:]
+        pattern = r'\\u[\da-fA-F]{4}'
+        matches = re.findall(pattern, text)
+        for match in matches:
+            try:
+                decoded = bytes(match, 'ascii').decode('unicode_escape')
+                text = text.replace(match, decoded)
+            except UnicodeDecodeError:
+                pass
+        return text
+    req_list = []
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        logger.info(f"Loading request data from {file_path}")
+        with open(file_path, "r") as f:
+            try:
+                reader = csv.DictReader(f)
+                req_idx = 0
+                line = next(reader)
+                while line and (num_reqs <=0 or req_idx < num_reqs):
+                    line2 = {_decode_unicode_strings(k):v for k,v in line.items()}
+                    line = line2
+                    ts = line["@timestamp"] if "@timestamp" in line else ""
+                    body = None
+                    api_type = ApiType.UnknownType
+                    if "msg" in line:
+                        raw_req = line["msg"]
+                        parts = raw_req.split(", ", 2)
+                        if len(parts) == 3 and parts[0].startswith("[final] ") and parts[2].startswith("request: "):
+                            api_type = _get_api_type(parts[0][8:])
+                            body = parts[2][9:]
+                    elif "request_body" in line:
+                        api_type = _get_api_type(line["request_type"]) if "request_type" in line else api_type
+                        body = line["request_body"]
+                    if body is not None and (req_ids is None or req_idx in req_ids):
+                        body = re.sub(r'\\(.)', r'\1', body.strip())
+                        #print(f"==== raw request body[{req_idx}]: {body}")
+                        req_input = new_input_args(api_type, body)
+                        if req_input is not None:
+                            req_input.index = req_idx
+                            req_input.timestamp = ts
+                            req_list.append(req_input)
+                    line = next(reader)
+                    req_idx += 1
+            except StopIteration:
+                logger.info("EOS of file")
+    print(f"=== len: {len(req_list)}")
+    return req_list
 
 def exec_get_method(url, api_key) -> str:
     try:
@@ -192,12 +286,12 @@ async def _openai_post_message(ctx: llm_request.ApiContext, phase: llm_request.R
     #    data.pop("stream")
     if args.api_type == ApiType.ChatCompletion or args.api_type == ApiType.ChatCompletionStream:
         url = url + "/chat/completions"
-        del data["prompt"]
+        #del data["prompt"]
         #data["messages"] = args.messages
         #data["stream"] = args.api_type == ApiType.ChatCompletionStream
     else:
         url = url + "/completions"
-        del data["messages"]
+        #del data["messages"]
         #data["prompt"] = args.prompt
         #data["stream"] = args.api_type == ApiType.CompletionStream
 
@@ -265,67 +359,14 @@ def main(args):
         req_ids = [int(x) for x in req_ids]
         if len(req_ids) == 0:
             req_ids = None
-    req_list : List[LlmInputArgs] = []
-    def _get_api_type(s:str) -> ApiType:
-        t = ApiType.UnknownType
-        if s.startswith("ChatCompletionStream"):
-            t = ApiType.ChatCompletionStream
-        elif s.startswith("ChatCompletion"):
-            t = ApiType.ChatCompletion
-        elif s.startswith("CompletionStream"):
-            t = ApiType.CompletionStream
-        elif s.startswith("Completion"):
-            t = ApiType.Completion
-        return t
-    if os.path.exists(args.requests_file) and os.path.isfile(args.requests_file):
-        logger.info(f"Loading request data from {args.requests_file}")
-        with open(args.requests_file, "r") as f:
-            try:
-                reader = csv.DictReader(f)
-                if args.max_num_requests > 0:
-                    req_idx = 0
-                    for i in range(args.max_num_requests):
-                        line = next(reader)
-                        raw_req = None
-                        ts = line["@timestamp"] if "@timestamp" in line else ""
-                        req_input = None
-                        t = ApiType.UnknownType
-                        b = None
-                        if "msg" in line:
-                            raw_req = line["msg"]
-                            parts = raw_req.split(", ", 2)
-                            if len(parts) == 3 and parts[0].startswith("[final] ") and parts[2].startswith("request: "):
-                                t = _get_api_type(parts[0][8:])
-                                b = parts[2][9:]
-                        elif "request_body" in line and "request_type" in line:
-                            t = _get_api_type(line["request_type"])
-                            b = line["request_body"]
-
-                        if t == ApiType.UnknownType:
-                            logger.warning(f"[{i}]: invalid request: {parts[0][8:]}, body: {parts[2][0:100]}..., at {line['@timestamp']}")
-                        else:
-                        #elif t == ApiType.ChatCompletion:
-                            if req_ids is None or req_idx in req_ids:
-                                # workaround
-                                if PRINT_STREAM_TOKEN and req_ids is not None:
-                                    print(f"Request[{req_ids}]: {b}")
-                                req_input = new_input_args(t, b)
-                                if req_input is None:
-                                    logger.warning(f"invalid request: [{req_ids}]: {b}")
-                                    continue
-                                req_input.index = req_idx
-                                req_input.timestamp = ts
-                                req_input.model = args.model_name
-                                req_input.strict = False
-                                req_input.api_key = args.api_key
-                                req_input.base_url = args.endpoint
-                                req_list.append(req_input)
-                            req_idx += 1
-            except StopIteration:
-                logger.info("EOS of file")
+    req_list = load_inputs_from_csv(args.requests_file, args.max_num_requests, req_ids)
     if len(req_list) == 0:
         logger.error("No valid requests are loaded")
         return
+    for req in req_list:
+        req.api_key = args.api_key
+        req.base_url = args.endpoint
+        req.model = args.model_name
     logger.info(f"{len(req_list)} requests are loaded")
 
     ## print the promt len and max_tokens
@@ -335,9 +376,11 @@ def main(args):
             prompt_len = len(tokenizer.encode(req_list[i].prompt)) if req_list[i].prompt else 0
             prompt_len += sum([len(tokenizer.encode(f"{x}")) for x in req_list[i].messages])
             req_list[i].prompt_len = prompt_len
-            if PRINT_VERBOSE:
-                logger.info(f"input/output length[{i}]: {prompt_len}, {req_list[i].max_tokens}")
+    if args.print_requests:
+        for i in range(len(req_list)):
+            print(f"[{i}]: {req_list[i]}")
 
+    ## send requests in parallel
     time_start = time.perf_counter()
     contexts = asyncio.run(send_requests_batch(args, req_list))
     elapsed = time.perf_counter() - time_start
@@ -396,6 +439,7 @@ if __name__ == "__main__":
     parser.add_argument("--requests-ids", type=str, help="Pick the specific requests from file for testing, start from 0, seperated by comma")
     parser.add_argument("--max-num-requests", type=int, default=100, help="Load maximum requests from the file, default is 100")
     parser.add_argument("--parallel", type=int, default=10, help="The num of requests sent in parallel, default is 10")
+    parser.add_argument("--print-requests", action="store_true", help="Print all raw requests")
     parser.add_argument("--print-response", type=int, default=0, help="The num of the response to print, default is 0")
     parser.add_argument("--dump", type=str, help="The file to save the output data")
 
