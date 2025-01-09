@@ -18,6 +18,7 @@ BM_GPU_TYPE=
 BM_GPU_IDS="0,1,2,3,4,5,6,7"
 BM_GPU_MIG_IDS=
 BM_MODELS=
+BM_SERVED_NAME=
 BM_SPEC_MODEL=
 BM_TPS=
 BM_MAX_MODEL_LEN=
@@ -39,6 +40,7 @@ function usage() {
     LOG INFO "  --gpu-ids (optional)The list of GPU IDs, sperated by comma, default is 0,1,2,3,4,5,6,7"
     LOG INFO "  --gpu-mig-ids (optional)The list of GPU MIG instance IDs, if it is set, the --gpu-ids is ignored"
     LOG INFO "  --models Can be model short name within ${!DEF_MODEL_HF_NAMES[@]}, or huggingface model name, or local model absolute path. If many, separated by comma"
+    LOG INFO "  --served-name The model served name"
     LOG INFO "  --tps The tensor parallel setting for each model, seprated by comma"
     LOG INFO "  --max-model-len(optional) The max model length, can leave unset"
     LOG INFO "  --tokenizer-dir (optional) Tht tokenizer folder path, if not set, download from huggingface: $DEF_TOKENIZER_HF_NAME and save to $CUR_DIR/tokenizer"
@@ -155,9 +157,9 @@ function get_client_test_strength() {
 
 function run_benchmark() {
     local model_name="$1"
-    local served_name=$model_name
     local model_dir=$model_name
     local tp="$2"
+    local served_name=$BM_SERVED_NAME
     echo ""
     LOG INFO "====== Run benchmark for model: $model_name, with tp: $tp ======"
 
@@ -165,19 +167,25 @@ function run_benchmark() {
         if [[ ! -d "$model_name" ]] || [[ ! -f "$model_name/config.json" ]] ; then
             LOG ERR "The the model does not exist on local disk: $model_name"
         fi
-        served_name=$(guess_served_name $(basename "$model_name"))
+        if [[ x"$served_name" == x"" ]]; then
+            served_name=$(guess_served_name $(basename "$model_name"))
+        fi
         LOG INFO "Load model from local disk, served name: $served_name"
     else
         if contains_value "$model_name" "${!DEF_MODEL_HF_NAMES[@]}"; then
             for key in "${!DEF_MODEL_HF_NAMES[@]}"; do
                 if [[ $model_name == $key ]]; then
                     model_name=${DEF_MODEL_HF_NAMES[$key]}
-                    served_name=$key
+                    if [[ x"$served_name" == x"" ]]; then
+                        served_name=$key
+                    fi
                     break
                 fi
             done
         else
-            served_name=$(guess_served_name $(basename "$model_name"))
+            if [[ x"$served_name" == x"" ]]; then
+                served_name=$(guess_served_name $(basename "$model_name"))
+            fi
         fi
         model_dir=$CUR_DIR/$served_name
         LOG INFO "Downloading model from huggingface: $model_name and save to $model_dir, and set served_name as $served_name"
@@ -341,6 +349,11 @@ function main() {
     --models)
         shift
         BM_MODELS="$1"
+        shift
+        ;;
+    --served-name)
+        shift
+        BM_SERVED_NAME="$1"
         shift
         ;;
     --tps)
