@@ -26,6 +26,7 @@ BM_PREFIX_CACHE=0
 BM_TOKENIZER_DIR=
 BM_TEST_LENGTH="middle"
 BM_TEST_PARALLEL=
+BM_TEST_NUM_REQUESTS=
 BM_OUT_DIR="out"
 BM_SERVER_ONLY=
 BM_CLIENT_ONLY=
@@ -48,6 +49,7 @@ function usage() {
     LOG INFO "  --spec-model (optional) The speculative decoding draft model"
     LOG INFO "  --length(optional) The test length, can be: quick, low, middle, high, or specific list of input_len,output_len, default is $BM_TEST_LENGTH"
     LOG INFO "  --parallel(optional) The num of requtest sent in parallel, default is none"
+    LOG INFO "  --num-requests(optional) The total num of requtest sent for testing"
     LOG INFO "  --out-dir(optional) The output folder to save the test results, default is out"
     LOG INFO "  --enable-prefix-cache(optional) Enable prefix caching feature during the tests"
     LOG INFO "  --setup(optional) Setup the testing envrionment, like install docker and git-lfs"
@@ -205,6 +207,9 @@ function run_benchmark() {
         if [[ x"$BM_SERVED_NAME" != x"" ]]; then
             client_args="$client_args --model-served-name $BM_SERVED_NAME"
         fi
+        if [[ x"$BM_TEST_NUM_REQUESTS" != x"" ]]; then
+            client_args="$client_args --num-requests $BM_TEST_NUM_REQUESTS"
+        fi
         LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $client_args"
         $CUR_DIR/launch_benchmark.sh $client_args
         if [ -f "$log_file_path" ]; then
@@ -264,6 +269,9 @@ function run_benchmark() {
             server_extra_args="$server_extra_args --enable-prefix-caching"
         fi
         local client_args="--tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw $(get_client_test_strength)"
+        if [[ x"$BM_TEST_NUM_REQUESTS" != x"" ]]; then
+            client_args="$client_args --num-requests $BM_TEST_NUM_REQUESTS"
+        fi
         LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $server_args $client_args --extra-server-args $server_extra_args"
         $CUR_DIR/launch_benchmark.sh $server_args $client_args --extra-server-args $server_extra_args
         if [ -f "$log_file_path" ]; then
@@ -392,6 +400,11 @@ function main() {
     --parallel)
         shift
         BM_TEST_PARALLEL="$1"
+        shift
+        ;;
+    --num-requests)
+        shift
+        BM_TEST_NUM_REQUESTS="$1"
         shift
         ;;
     --enable-prefix-cache)
