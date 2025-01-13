@@ -202,6 +202,9 @@ function run_benchmark() {
         fi
         local log_file_path="$BM_OUT_DIR/_gpu_${tp}x${BM_GPU_TYPE}_model_${served_name}_$RANDOM.txt"
         local client_args="--endpoint $BM_CLIENT_ONLY --tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw $(get_client_test_strength)"
+        if [[ x"$BM_SERVED_NAME" != x"" ]]; then
+            client_args="$client_args --model-served-name $BM_SERVED_NAME"
+        fi
         LOG INFO "[RUN]: $CUR_DIR/launch_benchmark.sh $client_args"
         $CUR_DIR/launch_benchmark.sh $client_args
         if [ -f "$log_file_path" ]; then
