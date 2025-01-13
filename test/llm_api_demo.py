@@ -319,7 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, help="The prompt for the completion.", default="The quick brown fox jumps over the lazy dog.")
     parser.add_argument("--model-name", type=str, help="The model name for completions.")
     parser.add_argument("--output-len", type=int, help="The maximum length of the output.", default=1024)
-    parser.add_argument("--stream", action="store_true", help="Whether to stream the output or not.")
+    parser.add_argument("--stream", action="store_true", default=None, help="Whether to stream the output or not.")
     parser.add_argument("--ignore-eos", action="store_true", help="Force to ouput the maximum length of the output, ignore eos when found.", default=None)
     parser.add_argument("--def-sys-prompt", action="store_true", help="Add default system prompt as prefix of prompt")
 
