@@ -255,18 +255,25 @@ function run_benchmark() {
             server_extra_args="$server_extra_args --enable-chunked-prefill"
         fi
         ## set max model length
-        if [[ x"$BM_MAX_MODEL_LEN" != x"" ]]; then
-            server_extra_args="$server_extra_args --max-model-len $BM_MAX_MODEL_LEN"
-        elif [[ "$served_name" == *llama33-* ]]; then
-            server_extra_args="$server_extra_args --max-model-len 131072"
-        elif [[ "$served_name" == *llama3-* ]]; then
-            server_extra_args="$server_extra_args --max-model-len 8192"
-        else
-            server_extra_args="$server_extra_args --max-model-len 32768"
+        if [[ x"$BM_MAX_MODEL_LEN" = x"" ]]; then
+            if [[ "$served_name" == *llama33-* ]]; then
+                BM_MAX_MODEL_LEN=131072
+            elif [[ "$served_name" == *llama3-* ]]; then
+                BM_MAX_MODEL_LEN=8192
+            else
+                BM_MAX_MODEL_LEN=32768
+            fi
         fi
+        server_extra_args="$server_extra_args --max-model-len $BM_MAX_MODEL_LEN"
         ## enable prefix caching
         if [ $BM_PREFIX_CACHE -eq 1 ]; then
             server_extra_args="$server_extra_args --enable-prefix-caching"
+        fi
+        if [[ "$BM_DOCKER_IMAGE" == *sglang* ]]; then
+            server_extra_args="--max-running-requests 32 --mem-fraction-static 0.92 --enable-metrics --context-length $BM_MAX_MODEL_LEN"
+            if [ $BM_PREFIX_CACHE -eq 0 ]; then
+                server_extra_args="$server_extra_args --disable-radix-cache"
+            fi
         fi
         local client_args="--tokenizer $BM_TOKENIZER_DIR --dataset $CUR_DIR/$DEF_DS_NAME --log-file $log_file_path --print-raw $(get_client_test_strength)"
         if [[ x"$BM_TEST_NUM_REQUESTS" != x"" ]]; then

@@ -101,9 +101,14 @@ function run_server() {
             LOG ERR "Failed to run docker instance: $docker_name"
         fi
         if echo "$ret" | grep -q "Route: /v1/chat/completions"; then
-            LOG INFO "Succeed to run docker $docker_name \n\n"
+            LOG INFO "Succeed to run vLLM docker $docker_name \n\n"
             break
         fi
+        if echo "$ret" | grep -q "\"POST /generate HTTP/1.1\" 200 OK"; then
+            LOG INFO "Succeed to run SGLang docker $docker_name \n\n"
+            break
+        fi
+
         try=$((try + 1))
     done
     if [ $try -eq 30 ];then
@@ -165,12 +170,18 @@ function run() {
         if [[ "$BM_IMAGE" == *_kvcache* ]]; then
             docker_args="$docker_args -e FULL_KV_LAYERS=6 -e SLIDING_WINDOW_WIDTH=1280"
         fi
-        server_args="--tensor-parallel-size $BM_TP --model /this_model"
+        server_args="--tensor-parallel-size $BM_TP"
         if [ x"$BM_SERVED_NAME" != x"" ]; then
             server_args="$server_args --served-model-name $BM_SERVED_NAME"
         fi
         if [ x"$BM_MAX_CTX_LEN" != x"" ]; then
             server_args="$server_args --max-model-len $BM_MAX_CTX_LEN"
+        fi
+        if [[ "$BM_IMAGE" == *sglang* ]]; then
+            docker_args="$docker_args --entrypoint /usr/bin/python3"
+            server_args="-m sglang.launch_server $server_args --model-path /this_model --trust-remote-code"
+        else
+            server_args="$server_args --model /this_model"
         fi
         server_args="$server_args $BM_DEF_SERVER_EXTA_ARGS"
         need_run_server=1
